@@ -124,6 +124,18 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
 
     // MARK: - Editor state
 
+    /// Where the caret and the viewport are, for session restore.
+    var caretPosition: Int { editor.send(SCI_GETCURRENTPOS) }
+    var firstVisibleLine: Int { editor.send(SCI_GETFIRSTVISIBLELINE) }
+
+    /// Puts the caret and scroll position back. Both are clamped: the file may have been edited
+    /// elsewhere since the session was written, and Scintilla would otherwise be asked for a
+    /// position the document no longer has.
+    func restoreViewport(caretPosition: Int, firstVisibleLine: Int) {
+        editor.send(SCI_GOTOPOS, min(max(caretPosition, 0), editor.send(SCI_GETLENGTH)))
+        editor.send(SCI_SETFIRSTVISIBLELINE, min(max(firstVisibleLine, 0), max(editor.send(SCI_GETLINECOUNT) - 1, 0)))
+    }
+
     func status() -> StatusBarState {
         let pos = editor.send(SCI_GETCURRENTPOS)
         return StatusBarState(

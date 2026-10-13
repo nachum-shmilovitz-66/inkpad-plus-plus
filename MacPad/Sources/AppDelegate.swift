@@ -11,8 +11,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Finder "Open With" delivers files before this point; only open "new 1" if none came.
-        if mainWindow.openTabs.isEmpty { mainWindow.newTab() }
+        // Finder "Open With" delivers files before this point. With none, reopen the previous
+        // session, and fall back to an empty "new 1" when there is nothing to reopen.
+        if mainWindow.openTabs.isEmpty {
+            let restored = SessionStore.load().map { mainWindow.restore($0) } ?? false
+            if !restored { mainWindow.newTab() }
+        }
         mainWindow.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -20,6 +24,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func application(_ application: NSApplication, open urls: [URL]) {
         urls.forEach { mainWindow.open($0) }
         mainWindow.showWindow(nil)
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        mainWindow.persistSession()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }

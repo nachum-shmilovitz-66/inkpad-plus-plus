@@ -6,6 +6,8 @@ import AppKit
 final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuItemValidation {
     private var tabs = TabList<EditorTab>()
     private var nextUntitledNumber = 1
+    /// Suppresses session writes while the session itself is being reopened.
+    private var isRestoring = false
 
     private let tabBar = TabBarView()
     private let editorContainer = NSView()
@@ -90,6 +92,59 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         }
     }
 
+    // MARK: - Session
+
+    /// The open documents, in tab order. Unsaved "new N" documents have no file to point at, so
+    /// they are left out rather than restored empty.
+    func captureSession() -> SessionState {
+        var active = 0
+        var documents: [SessionState.Document] = []
+        for (index, tab) in tabs.items.enumerated() {
+            guard let path = tab.fileURL?.standardizedFileURL.path else { continue }
+            if index == tabs.activeIndex { active = documents.count }
+            documents.append(SessionState.Document(
+                path: path,
+                caretPosition: tab.caretPosition,
+                firstVisibleLine: tab.firstVisibleLine))
+        }
+        return SessionState(documents: documents, activeIndex: active)
+    }
+
+    /// Reopens a stored session. Returns false when nothing could be reopened, so the caller can
+    /// fall back to a fresh document.
+    @discardableResult
+    func restore(_ state: SessionState) -> Bool {
+        let state = state.filtered { FileManager.default.fileExists(atPath: $0) }
+        guard !state.isEmpty else { return false }
+        isRestoring = true
+        defer { isRestoring = false }
+        for document in state.documents {
+            let tab = EditorTab(untitledNumber: nextUntitledNumber)
+            nextUntitledNumber += 1
+            tab.hostWindow = window
+            do {
+                try tab.load(URL(fileURLWithPath: document.path))
+            } catch {
+                NSLog("MacPad++: skipping \(document.path) from the session: \(error.localizedDescription)")
+                continue
+            }
+            add(tab)
+            tab.restoreViewport(caretPosition: document.caretPosition,
+                                firstVisibleLine: document.firstVisibleLine)
+        }
+        guard !tabs.isEmpty else { return false }
+        tabs.select(min(state.activeIndex, tabs.count - 1))
+        refresh()
+        return true
+    }
+
+    /// Written whenever the set of open documents changes, so a crash or a forced quit still
+    /// leaves a usable session behind.
+    func persistSession() {
+        guard !isRestoring else { return }
+        SessionStore.save(captureSession())
+    }
+
     private func add(_ tab: EditorTab) {
         tab.hostWindow = window
         tab.onChange = { [weak self] in self?.refresh() }
@@ -103,6 +158,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         ])
         tabs.append(tab)
         refresh()
+        persistSession()
     }
 
     // MARK: - Tab commands
@@ -110,6 +166,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     func selectTab(at index: Int) {
         tabs.select(index)
         refresh()
+        persistSession()
     }
 
     /// Closes a tab, asking about unsaved changes first. Closing the last tab leaves a fresh
@@ -124,6 +181,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             tab.editor.removeFromSuperview()
             tab.detach()
             if self.tabs.isEmpty { self.newTab() } else { self.refresh() }
+            self.persistSession()
         }
     }
 
@@ -144,8 +202,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         refresh()
     }
 
-    @IBAction func saveDocument(_ sender: Any?) { activeTab?.save() }
-    @IBAction func saveDocumentAs(_ sender: Any?) { activeTab?.saveAs() }
+    @IBAction func saveDocument(_ sender: Any?) {
+        activeTab?.save { [weak self] saved in if saved { self?.persistSession() } }
+    }
+
+    @IBAction func saveDocumentAs(_ sender: Any?) {
+        activeTab?.saveAs { [weak self] saved in if saved { self?.persistSession() } }
+    }
 
     // MARK: - View menu
 
