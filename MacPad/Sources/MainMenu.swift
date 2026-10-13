@@ -52,9 +52,10 @@ enum MainMenu {
         menu.addItem(item("New", #selector(AppDelegate.newDocument(_:)), "n"))
         menu.addItem(item("Open…", #selector(AppDelegate.openDocument(_:)), "o"))
         menu.addItem(.separator())
-        menu.addItem(item("Close", #selector(NSWindow.performClose(_:)), "w"))
-        menu.addItem(item("Save", #selector(EditorWindowController.saveDocument(_:)), "s"))
-        menu.addItem(item("Save As…", #selector(EditorWindowController.saveDocumentAs(_:)), "s", [.command, .shift]))
+        menu.addItem(item("Close Tab", #selector(MainWindowController.closeTab(_:)), "w"))
+        menu.addItem(item("Close Window", #selector(NSWindow.performClose(_:)), "w", [.command, .shift]))
+        menu.addItem(item("Save", #selector(MainWindowController.saveDocument(_:)), "s"))
+        menu.addItem(item("Save As…", #selector(MainWindowController.saveDocumentAs(_:)), "s", [.command, .shift]))
         return menu
     }
 
@@ -73,12 +74,12 @@ enum MainMenu {
 
     private static func viewMenu() -> NSMenu {
         let menu = NSMenu(title: "View")
-        menu.addItem(item("Zoom In", #selector(EditorWindowController.zoomInText(_:)), "+"))
-        menu.addItem(item("Zoom Out", #selector(EditorWindowController.zoomOutText(_:)), "-"))
-        menu.addItem(item("Restore Default Zoom", #selector(EditorWindowController.restoreTextZoom(_:)), "0"))
+        menu.addItem(item("Zoom In", #selector(MainWindowController.zoomInText(_:)), "+"))
+        menu.addItem(item("Zoom Out", #selector(MainWindowController.zoomOutText(_:)), "-"))
+        menu.addItem(item("Restore Default Zoom", #selector(MainWindowController.restoreTextZoom(_:)), "0"))
         menu.addItem(.separator())
-        menu.addItem(item("Show All Characters", #selector(EditorWindowController.toggleShowAllCharacters(_:))))
-        menu.addItem(item("Word Wrap", #selector(EditorWindowController.toggleWordWrap(_:))))
+        menu.addItem(item("Show All Characters", #selector(MainWindowController.toggleShowAllCharacters(_:))))
+        menu.addItem(item("Word Wrap", #selector(MainWindowController.toggleWordWrap(_:))))
         menu.addItem(.separator())
         menu.addItem(item("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]))
         return menu
@@ -88,6 +89,9 @@ enum MainMenu {
         let menu = NSMenu(title: "Window")
         menu.addItem(item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"))
         menu.addItem(item("Zoom", #selector(NSWindow.performZoom(_:))))
+        menu.addItem(.separator())
+        menu.addItem(item("Show Next Tab", #selector(MainWindowController.selectNextTab(_:)), "]", [.command, .shift]))
+        menu.addItem(item("Show Previous Tab", #selector(MainWindowController.selectPreviousTab(_:)), "[", [.command, .shift]))
         menu.addItem(.separator())
         menu.addItem(item("Bring All to Front", #selector(NSApplication.arrangeInFront(_:))))
         return menu
