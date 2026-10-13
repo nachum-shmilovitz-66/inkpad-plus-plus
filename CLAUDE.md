@@ -65,7 +65,7 @@ App: `build/dd-app/Build/Products/Debug/MacPad++.app`.
 4. **Language menu, Style Configurator, themes, Preferences.**
 5. **Edit commands** — line ops, case, comment toggle, Column Editor, macros, Shortcut Mapper.
 6. **Panels** — Function List, Document Map, Folder as Workspace, split view.
-7. **Packaging** — signed `.app`, `.dmg`, file-type associations.
+7. **Packaging** — signed `.app`, `.pkg` installer, file-type associations.
 
 Milestone 1: **done** (2026-10-13). One window per document; open/save (Finder "Open With" too);
 lexer + keywords by extension from `langs.model.xml`; default theme from `stylers.model.xml`; folding,
@@ -85,3 +85,16 @@ Next: milestone 2 (Tabs).
 
 macOS 26.6 on Apple Silicon (arm64), Xcode 27.0, Swift 6.4. Progress file for this repo:
 `~/.claude/progress/MacPad++.txt`.
+
+## Process requirements (set by the user on 2026-10-13)
+
+- **Jira:** every item of work gets a ticket in project **MAC** ("macpad++") on the private
+  Atlassian site — board https://nachum-shmilovitz.atlassian.net/jira/software/projects/MAC/boards/167.
+  Open the ticket before the work starts, close it with a description of what actually shipped.
+- **Testing:** every feature ships with full unit-test coverage; every bug fix ships with a
+  regression test. Extract logic out of AppKit views where needed so it can be tested headless.
+- **Versioning:** the line starts at `0.1.0` (`MARKETING_VERSION` in `project.yml`). At this stage
+  every release bumps the **patch** only.
+- **`deploy patch`** means, in order: run the unit tests (a failure stops everything) → bump the
+  patch → update and close the Jira tickets → commit and push → build the `.pkg` installer into `dist/`
+  for every requested platform (currently macOS arm64 only; `.pkg`, never `.dmg`) → ask the user whether to install it.

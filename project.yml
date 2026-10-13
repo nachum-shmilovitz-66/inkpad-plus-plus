@@ -21,6 +21,7 @@ targets:
     settings:
       base:
         PRODUCT_NAME: MacPad++
+        PRODUCT_MODULE_NAME: MacPad
         PRODUCT_BUNDLE_IDENTIFIER: app.macpad.MacPad
         INFOPLIST_FILE: MacPad/Info.plist
         SWIFT_OBJC_BRIDGING_HEADER: MacPad/Sources/BridgingHeader.h
@@ -37,6 +38,10 @@ targets:
       - framework: build/deps/Scintilla.framework
         embed: true
         codeSign: true
+    scheme:
+      testTargets:
+        - MacPad++Tests
+      gatherCoverageData: true
     preBuildScripts:
       - name: Copy Notepad++ data files
         basedOnDependencyAnalysis: false
@@ -48,3 +53,27 @@ targets:
           mkdir -p "$DEST"
           cp "$NPP/src/langs.model.xml" "$NPP/src/stylers.model.xml" "$DEST/"
           rsync -a --delete "$NPP/installer/themes/" "$DEST/themes/"
+
+  MacPad++Tests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: MacPadTests
+    settings:
+      base:
+        PRODUCT_NAME: MacPad++Tests
+        PRODUCT_MODULE_NAME: MacPadTests
+        PRODUCT_BUNDLE_IDENTIFIER: app.macpad.MacPadTests
+        GENERATE_INFOPLIST_FILE: YES
+        FRAMEWORK_SEARCH_PATHS: $(PROJECT_DIR)/build/deps
+        HEADER_SEARCH_PATHS: $(PROJECT_DIR)/build/deps
+        LIBRARY_SEARCH_PATHS: $(PROJECT_DIR)/build/deps
+        LD_RUNPATH_SEARCH_PATHS:
+          - "@executable_path/../Frameworks"
+          - "@loader_path/../Frameworks"
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        DEVELOPMENT_TEAM: ""
+        ENABLE_HARDENED_RUNTIME: NO
+    dependencies:
+      - target: MacPad++
