@@ -51,6 +51,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
         tabBar.onSelect = { [weak self] index in self?.selectTab(at: index) }
         tabBar.onClose = { [weak self] index in self?.closeTab(at: index) }
+        statusBar.onEncodingClick = { [weak self] label in self?.showEncodingMenu(at: label) }
+        statusBar.onLineEndingClick = { [weak self] label in self?.showLineEndingMenu(at: label) }
     }
 
     @available(*, unavailable)
@@ -208,6 +210,53 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     @IBAction func saveDocumentAs(_ sender: Any?) {
         activeTab?.saveAs { [weak self] saved in if saved { self?.persistSession() } }
+    }
+
+    // MARK: - Status bar pickers (encoding, line endings)
+
+    private func showEncodingMenu(at label: NSView) {
+        guard let tab = activeTab else { return }
+        let menu = NSMenu()
+        for entry in StatusBarMenu.encodingItems(current: tab.encoding) {
+            let item = NSMenuItem(title: entry.title, action: #selector(convertEncoding(_:)), keyEquivalent: "")
+            item.representedObject = entry.value.statusName
+            item.state = entry.isCurrent ? .on : .off
+            item.target = self
+            menu.addItem(item)
+        }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: label.bounds.maxY + 4), in: label)
+    }
+
+    private func showLineEndingMenu(at label: NSView) {
+        guard let tab = activeTab else { return }
+        let menu = NSMenu()
+        for entry in StatusBarMenu.lineEndingItems(current: tab.lineEnding) {
+            let item = NSMenuItem(title: entry.title, action: #selector(convertLineEndings(_:)), keyEquivalent: "")
+            item.tag = entry.value.rawValue
+            item.state = entry.isCurrent ? .on : .off
+            item.target = self
+            menu.addItem(item)
+        }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: label.bounds.maxY + 4), in: label)
+    }
+
+    @objc private func convertEncoding(_ sender: NSMenuItem) {
+        guard let tab = activeTab, let name = sender.representedObject as? String,
+              let target = TextEncoding.menuOrder.first(where: { $0.statusName == name }) else { return }
+        do {
+            try tab.convertEncoding(to: target)
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Cannot convert \"\(tab.displayName)\" to \(target.statusName)"
+            alert.informativeText = "The text contains characters that \(target.statusName) cannot represent. "
+                + "The document was left unchanged."
+            if let window { alert.beginSheetModal(for: window) } else { alert.runModal() }
+        }
+    }
+
+    @objc private func convertLineEndings(_ sender: NSMenuItem) {
+        guard let tab = activeTab, let target = LineEnding(rawValue: sender.tag) else { return }
+        tab.convertLineEndings(to: target)
     }
 
     // MARK: - View menu

@@ -7,7 +7,11 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
 
     private(set) var fileURL: URL?
     private let untitledNumber: Int
-    private(set) var encoding: TextEncoding = .utf8
+    /// Target encoding vs. the one on disk; see FileFormat.
+    private(set) var format = FileFormat(encoding: .utf8)
+    var encoding: TextEncoding { format.encoding }
+    /// Scintilla's EOL mode: what Enter inserts, and what the status bar shows.
+    var lineEnding: LineEnding { LineEnding(rawValue: editor.send(SCI_GETEOLMODE)) ?? .lf }
     private(set) var language: LanguageInfo = LanguageCatalog.shared.plainText
 
     /// Called when the title, the dirty state or the caret changes, so the host can refresh the
@@ -16,7 +20,8 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
     /// The window to present sheets in. Set by the host controller.
     weak var hostWindow: NSWindow?
 
-    var isModified: Bool { editor.send(SCI_GETMODIFY) != 0 }
+    /// Edited since the last save, or converted to another encoding (which leaves the buffer as is).
+    var isModified: Bool { editor.send(SCI_GETMODIFY) != 0 || format.isEncodingChanged }
     /// An untouched "new N" document, which Notepad++ reuses when a file is opened.
     var isPristineUntitled: Bool { fileURL == nil && !isModified && editor.send(SCI_GETLENGTH) == 0 }
     var displayName: String { TabTitle.displayName(url: fileURL, untitledNumber: untitledNumber) }
@@ -49,7 +54,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         editor.send(SCI_SETSAVEPOINT)
         editor.send(SCI_GOTOPOS, 0)
         fileURL = url
-        encoding = loaded.encoding
+        format = FileFormat(encoding: loaded.encoding)
         applyLanguage(LanguageCatalog.shared.language(for: url))
         NSDocumentController.shared.noteNewRecentDocumentURL(url)
         RecentFilesStore.shared.record(url)
@@ -69,6 +74,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         }
         let languageChanged = fileURL?.pathExtension != url.pathExtension
         fileURL = url
+        format.markSaved()
         editor.send(SCI_SETSAVEPOINT)
         if languageChanged { applyLanguage(LanguageCatalog.shared.language(for: url)) }
         NSDocumentController.shared.noteNewRecentDocumentURL(url)
@@ -80,7 +86,10 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
     /// Saves, asking for a location if the document is untitled. Calls back with success.
     func save(completion: ((Bool) -> Void)? = nil) {
         if let url = fileURL {
-            completion?(write(to: url))
+            // Write first, then report: `completion?(write(to:))` would skip the write itself
+            // when there is no completion (MAC-18).
+            let saved = write(to: url)
+            completion?(saved)
         } else {
             saveAs(completion: completion)
         }
@@ -92,7 +101,8 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         if let dir = fileURL?.deletingLastPathComponent() { panel.directoryURL = dir }
         let handler: (NSApplication.ModalResponse) -> Void = { [weak self] response in
             guard let self, response == .OK, let url = panel.url else { completion?(false); return }
-            completion?(self.write(to: url))
+            let saved = self.write(to: url)
+            completion?(saved)
         }
         if let hostWindow {
             panel.beginSheetModal(for: hostWindow, completionHandler: handler)
@@ -124,6 +134,42 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         }
     }
 
+    // MARK: - Encoding and line endings (status bar pickers)
+
+    /// Notepad++'s "Convert to …": the text stays, the file will be written in `target`.
+    /// Throws `TextFile.SaveError.unrepresentable` — and changes nothing — if the text cannot be
+    /// represented in `target`.
+    func convertEncoding(to target: TextEncoding) throws {
+        guard target != encoding else { return }
+        try format.convert(editor.utf8Bytes(), to: target)
+        onChange?()
+    }
+
+    /// Notepad++'s EOL Conversion: rewrites every line ending as one undoable edit and makes
+    /// `target` what Enter inserts from now on. The caret keeps its line and column.
+    func convertLineEndings(to target: LineEnding) {
+        editor.send(SCI_SETEOLMODE, target.rawValue)
+        let old = editor.utf8Bytes()
+        let new = LineEnding.convert(old, to: target)
+        guard new != old else { onChange?(); return }
+
+        let pos = editor.send(SCI_GETCURRENTPOS)
+        let line = editor.send(SCI_LINEFROMPOSITION, pos)
+        let column = editor.send(SCI_GETCOLUMN, pos)
+        let firstVisible = editor.send(SCI_GETFIRSTVISIBLELINE)
+
+        editor.send(SCI_BEGINUNDOACTION)
+        editor.send(SCI_SETTARGETRANGE, 0, old.count)
+        new.withUnsafeBytes { raw in
+            _ = editor.send(SCI_REPLACETARGET, raw.count, pointer: raw.baseAddress)
+        }
+        editor.send(SCI_ENDUNDOACTION)
+
+        editor.send(SCI_GOTOPOS, editor.send(SCI_FINDCOLUMN, line, column))
+        editor.send(SCI_SETFIRSTVISIBLELINE, firstVisible)
+        onChange?()
+    }
+
     // MARK: - Editor state
 
     /// Where the caret and the viewport are, for session restore.
@@ -147,7 +193,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
             line: editor.send(SCI_LINEFROMPOSITION, pos) + 1,
             column: editor.send(SCI_GETCOLUMN, pos) + 1,
             position: pos + 1,
-            lineEnding: (LineEnding(rawValue: editor.send(SCI_GETEOLMODE)) ?? .lf).statusName,
+            lineEnding: lineEnding.statusName,
             encoding: encoding.statusName,
             overtype: editor.send(SCI_GETOVERTYPE) != 0)
     }

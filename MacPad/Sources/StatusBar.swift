@@ -5,9 +5,19 @@ final class StatusBar: NSView {
     private let language = StatusBar.label(alignment: .left)
     private let size = StatusBar.label()
     private let caret = StatusBar.label()
-    private let lineEnding = StatusBar.label()
-    private let encoding = StatusBar.label()
+    private let lineEnding = StatusBar.clickableLabel(tip: "Click to convert the line endings")
+    private let encoding = StatusBar.clickableLabel(tip: "Click to convert the encoding")
     private let mode = StatusBar.label()
+
+    /// Clicked the line-ending / encoding label; the argument is the label, to anchor a menu on.
+    var onLineEndingClick: ((NSView) -> Void)? {
+        get { lineEnding.onClick }
+        set { lineEnding.onClick = newValue }
+    }
+    var onEncodingClick: ((NSView) -> Void)? {
+        get { encoding.onClick }
+        set { encoding.onClick = newValue }
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -56,5 +66,43 @@ final class StatusBar: NSView {
         field.alignment = alignment
         field.lineBreakMode = .byTruncatingTail
         return field
+    }
+
+    private static func clickableLabel(tip: String) -> ClickableLabel {
+        let field = ClickableLabel(labelWithString: "")
+        field.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        field.textColor = .secondaryLabelColor
+        field.alignment = .right
+        field.lineBreakMode = .byTruncatingTail
+        field.toolTip = tip
+        return field
+    }
+}
+
+/// A status-bar label that acts on a click, as Notepad++'s EOL and encoding panes do.
+final class ClickableLabel: NSTextField {
+    var onClick: ((NSView) -> Void)? {
+        didSet { window?.invalidateCursorRects(for: self) }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let onClick else { return super.mouseDown(with: event) }
+        onClick(self)
+    }
+
+    override func resetCursorRects() {
+        if onClick != nil { addCursorRect(bounds, cursor: .pointingHand) }
+    }
+
+    // Accessibility: present as a button and honour "press", so VoiceOver and other assistive
+    // tools can open the picker as well as the mouse can.
+    override func accessibilityRole() -> NSAccessibility.Role? {
+        onClick == nil ? super.accessibilityRole() : .button
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        guard let onClick else { return false }
+        onClick(self)
+        return true
     }
 }
