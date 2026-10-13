@@ -47,7 +47,7 @@ final class RecentFilesStore {
     private let key: String
     private(set) var files: RecentFiles
 
-    init(defaults: UserDefaults = .standard, key: String = "RecentFiles") {
+    init(defaults: UserDefaults = AppEnvironment.defaults, key: String = "RecentFiles") {
         self.defaults = defaults
         self.key = key
         files = RecentFiles(paths: defaults.stringArray(forKey: key) ?? [])

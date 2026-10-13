@@ -25,7 +25,13 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
     /// An untouched "new N" document, which Notepad++ reuses when a file is opened.
     var isPristineUntitled: Bool { fileURL == nil && !isModified && editor.send(SCI_GETLENGTH) == 0 }
     var displayName: String { TabTitle.displayName(url: fileURL, untitledNumber: untitledNumber) }
-    var tabLabel: String { TabTitle.tabLabel(displayName: displayName, isModified: isModified) }
+    var tabLabel: String { TabTitle.tabLabel(displayName: displayName, isModified: isModified, isMonitoring: isMonitoring) }
+
+    /// Monitoring (tail -f): read-only, follows the file as it grows. See startMonitoring().
+    private(set) var isMonitoring = false
+    private var watcher: FileWatcher?
+    private var snapshot: FileSnapshot?
+    private var decoder: IncrementalDecoder?
 
     init(untitledNumber: Int) {
         self.untitledNumber = untitledNumber
@@ -39,6 +45,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
     }
 
     func detach() {
+        stopMonitoring()
         editor.delegate = nil
         onChange = nil
         hostWindow = nil
@@ -56,7 +63,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         fileURL = url
         format = FileFormat(encoding: loaded.encoding)
         applyLanguage(LanguageCatalog.shared.language(for: url))
-        NSDocumentController.shared.noteNewRecentDocumentURL(url)
+        AppEnvironment.noteRecentDocument(url)
         RecentFilesStore.shared.record(url)
         onChange?()
     }
@@ -77,7 +84,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         format.markSaved()
         editor.send(SCI_SETSAVEPOINT)
         if languageChanged { applyLanguage(LanguageCatalog.shared.language(for: url)) }
-        NSDocumentController.shared.noteNewRecentDocumentURL(url)
+        AppEnvironment.noteRecentDocument(url)
         RecentFilesStore.shared.record(url)
         onChange?()
         return true
@@ -85,6 +92,9 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
 
     /// Saves, asking for a location if the document is untitled. Calls back with success.
     func save(completion: ((Bool) -> Void)? = nil) {
+        // A monitored file belongs to the program writing it: never write over it (nor its
+        // freshly appended lines). The buffer is read-only and always matches the disk anyway.
+        if isMonitoring { completion?(true); return }
         if let url = fileURL {
             // Write first, then report: `completion?(write(to:))` would skip the write itself
             // when there is no completion (MAC-18).
@@ -96,6 +106,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
     }
 
     func saveAs(completion: ((Bool) -> Void)? = nil) {
+        if isMonitoring { completion?(false); return }
         let panel = NSSavePanel()
         panel.nameFieldStringValue = fileURL?.lastPathComponent ?? displayName
         if let dir = fileURL?.deletingLastPathComponent() { panel.directoryURL = dir }
@@ -140,7 +151,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
     /// Throws `TextFile.SaveError.unrepresentable` — and changes nothing — if the text cannot be
     /// represented in `target`.
     func convertEncoding(to target: TextEncoding) throws {
-        guard target != encoding else { return }
+        guard target != encoding, !isMonitoring else { return }
         try format.convert(editor.utf8Bytes(), to: target)
         onChange?()
     }
@@ -148,6 +159,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
     /// Notepad++'s EOL Conversion: rewrites every line ending as one undoable edit and makes
     /// `target` what Enter inserts from now on. The caret keeps its line and column.
     func convertLineEndings(to target: LineEnding) {
+        guard !isMonitoring else { return }
         editor.send(SCI_SETEOLMODE, target.rawValue)
         let old = editor.utf8Bytes()
         let new = LineEnding.convert(old, to: target)
@@ -168,6 +180,105 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         editor.send(SCI_GOTOPOS, editor.send(SCI_FINDCOLUMN, line, column))
         editor.send(SCI_SETFIRSTVISIBLELINE, firstVisible)
         onChange?()
+    }
+
+    // MARK: - Monitoring (tail -f)
+
+    /// Notepad++'s View › Monitoring (tail -f): reloads the file from disk, makes the tab
+    /// read-only, and from then on appends whatever the file gains — following the end while the
+    /// caret is at the end. A replaced or truncated file (log rotation) is read again from the
+    /// start. The caller saves unsaved edits first; this refuses to discard them.
+    func startMonitoring(pollInterval: TimeInterval = 1.0) throws {
+        guard !isMonitoring, let url = fileURL else { return }
+        guard !isModified else { throw MonitoringError.unsavedChanges }
+        isMonitoring = true
+        do {
+            try reloadForMonitoring(url)
+        } catch {
+            isMonitoring = false
+            throw error
+        }
+        let watcher = FileWatcher(path: url.path, pollInterval: pollInterval) { [weak self] in self?.checkMonitoredFile() }
+        watcher.start()
+        self.watcher = watcher
+        onChange?()
+    }
+
+    func stopMonitoring() {
+        guard isMonitoring else { return }
+        watcher?.stop()
+        watcher = nil
+        snapshot = nil
+        decoder = nil
+        isMonitoring = false
+        editor.send(SCI_SETREADONLY, 0)
+        onChange?()
+    }
+
+    enum MonitoringError: LocalizedError {
+        case unsavedChanges
+        var errorDescription: String? { "Save the document before monitoring it." }
+    }
+
+    /// Looks at the file now (the watcher calls this; tests call it directly).
+    func checkMonitoredFile() {
+        guard isMonitoring, let url = fileURL else { return }
+        switch FileChange.classify(previous: snapshot, current: FileSnapshot.of(path: url.path)) {
+        case .unchanged:
+            break
+        case .appended(let from):
+            appendFromDisk(url, from: from)
+        case .replaced:
+            try? reloadForMonitoring(url)
+        case .missing:
+            snapshot = nil  // keep the text; pick the file up again when it reappears
+        }
+    }
+
+    /// Reads the whole file, as on load, and positions at the end.
+    private func reloadForMonitoring(_ url: URL) throws {
+        let data = try Data(contentsOf: url)
+        let loaded = TextFile.decode(data)
+        replaceReadOnlyText { editor.setUTF8Bytes(loaded.utf8) }
+        if let eol = loaded.lineEnding { editor.send(SCI_SETEOLMODE, eol.rawValue) }
+        format = FileFormat(encoding: loaded.encoding)
+        decoder = IncrementalDecoder(encoding: loaded.encoding)
+        snapshot = FileSnapshot.of(path: url.path).map { FileSnapshot(inode: $0.inode, size: UInt64(data.count), modified: $0.modified) }
+        editor.send(SCI_DOCUMENTEND)
+        onChange?()
+    }
+
+    /// Appends the bytes the file gained since `offset`, keeping the view on the end only if the
+    /// caret was already there (scrolling up to read earlier lines pauses following).
+    private func appendFromDisk(_ url: URL, from offset: UInt64) {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return }
+        defer { try? handle.close() }
+        guard (try? handle.seek(toOffset: offset)) != nil, let bytes = try? handle.readToEnd(), !bytes.isEmpty,
+              var decoder else { return }
+        let text = decoder.feed(bytes)
+        self.decoder = decoder
+        if let current = FileSnapshot.of(path: url.path) {
+            snapshot = FileSnapshot(inode: current.inode, size: offset + UInt64(bytes.count), modified: current.modified)
+        }
+        guard !text.isEmpty else { return }
+        let following = editor.send(SCI_GETCURRENTPOS) == editor.send(SCI_GETLENGTH)
+        replaceReadOnlyText {
+            text.withUnsafeBytes { raw in
+                _ = editor.send(SCI_APPENDTEXT, raw.count, pointer: raw.baseAddress)
+            }
+        }
+        if following { editor.send(SCI_DOCUMENTEND) }
+        onChange?()
+    }
+
+    /// Changes the text of the read-only monitored buffer without it counting as an edit:
+    /// no undo history, no dirty state.
+    private func replaceReadOnlyText(_ change: () -> Void) {
+        editor.send(SCI_SETREADONLY, 0)
+        change()
+        editor.send(SCI_EMPTYUNDOBUFFER)
+        editor.send(SCI_SETSAVEPOINT)
+        editor.send(SCI_SETREADONLY, isMonitoring ? 1 : 0)
     }
 
     // MARK: - Editor state

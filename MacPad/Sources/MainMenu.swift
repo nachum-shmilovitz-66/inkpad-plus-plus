@@ -85,6 +85,7 @@ enum MainMenu {
         menu.addItem(.separator())
         menu.addItem(item("Show All Characters", #selector(MainWindowController.toggleShowAllCharacters(_:))))
         menu.addItem(item("Word Wrap", #selector(MainWindowController.toggleWordWrap(_:))))
+        menu.addItem(item("Monitoring (tail -f)", #selector(MainWindowController.toggleMonitoring(_:))))
         menu.addItem(.separator())
         menu.addItem(item("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]))
         return menu

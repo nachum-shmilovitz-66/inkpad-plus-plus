@@ -107,7 +107,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             documents.append(SessionState.Document(
                 path: path,
                 caretPosition: tab.caretPosition,
-                firstVisibleLine: tab.firstVisibleLine))
+                firstVisibleLine: tab.firstVisibleLine,
+                isMonitoring: tab.isMonitoring))
         }
         return SessionState(documents: documents, activeIndex: active)
     }
@@ -131,8 +132,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                 continue
             }
             add(tab)
-            tab.restoreViewport(caretPosition: document.caretPosition,
-                                firstVisibleLine: document.firstVisibleLine)
+            if document.isMonitoring {
+                try? tab.startMonitoring()  // positions at the end, as monitoring does
+            } else {
+                tab.restoreViewport(caretPosition: document.caretPosition,
+                                    firstVisibleLine: document.firstVisibleLine)
+            }
         }
         guard !tabs.isEmpty else { return false }
         tabs.select(min(state.activeIndex, tabs.count - 1))
@@ -215,7 +220,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     // MARK: - Status bar pickers (encoding, line endings)
 
     private func showEncodingMenu(at label: NSView) {
-        guard let tab = activeTab else { return }
+        guard let tab = activeTab, !tab.isMonitoring else { NSSound.beep(); return }
         let menu = NSMenu()
         for entry in StatusBarMenu.encodingItems(current: tab.encoding) {
             let item = NSMenuItem(title: entry.title, action: #selector(convertEncoding(_:)), keyEquivalent: "")
@@ -228,7 +233,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 
     private func showLineEndingMenu(at label: NSView) {
-        guard let tab = activeTab else { return }
+        guard let tab = activeTab, !tab.isMonitoring else { NSSound.beep(); return }
         let menu = NSMenu()
         for entry in StatusBarMenu.lineEndingItems(current: tab.lineEnding) {
             let item = NSMenuItem(title: entry.title, action: #selector(convertLineEndings(_:)), keyEquivalent: "")
@@ -273,6 +278,36 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         editor.send(SCI_SETVIEWEOL, on ? 1 : 0)
     }
 
+    /// View › Monitoring (tail -f). Unsaved edits are saved first (after asking), since the
+    /// monitored tab shows the file exactly as it is on disk.
+    @IBAction func toggleMonitoring(_ sender: Any?) {
+        guard let tab = activeTab, tab.fileURL != nil else { return }
+        if tab.isMonitoring {
+            tab.stopMonitoring()
+            persistSession()
+            return
+        }
+        let start: () -> Void = { [weak self] in
+            do {
+                try tab.startMonitoring()
+                self?.persistSession()
+            } catch {
+                if let window = self?.window { NSApp.presentError(error, modalFor: window, delegate: nil, didPresent: nil, contextInfo: nil) }
+            }
+        }
+        guard tab.isModified else { start(); return }
+        let alert = NSAlert()
+        alert.messageText = "Save \"\(tab.displayName)\" before monitoring it?"
+        alert.informativeText = "Monitoring shows the file as it is on disk and makes the tab read-only."
+        alert.addButton(withTitle: "Save and Monitor")
+        alert.addButton(withTitle: "Cancel")
+        let handle: (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .alertFirstButtonReturn else { return }
+            tab.save { saved in if saved { start() } }
+        }
+        if let window { alert.beginSheetModal(for: window, completionHandler: handle) } else { handle(alert.runModal()) }
+    }
+
     @IBAction func zoomInText(_ sender: Any?) { activeTab?.editor.send(SCI_ZOOMIN) }
     @IBAction func zoomOutText(_ sender: Any?) { activeTab?.editor.send(SCI_ZOOMOUT) }
     @IBAction func restoreTextZoom(_ sender: Any?) { activeTab?.editor.send(SCI_SETZOOM, 0) }
@@ -286,6 +321,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             item.state = editor.send(SCI_GETVIEWWS) != Int(SCWS_INVISIBLE) ? .on : .off
         case #selector(selectNextTab(_:)), #selector(selectPreviousTab(_:)):
             return tabs.count > 1
+        case #selector(toggleMonitoring(_:)):
+            item.state = activeTab?.isMonitoring == true ? .on : .off
+            return activeTab?.fileURL != nil
+        case #selector(saveDocument(_:)), #selector(saveDocumentAs(_:)):
+            return activeTab?.isMonitoring != true  // a monitored file belongs to its writer
         default:
             break
         }

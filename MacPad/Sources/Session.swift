@@ -8,11 +8,26 @@ struct SessionState: Codable, Equatable {
         var path: String
         var caretPosition: Int
         var firstVisibleLine: Int
+        /// Monitoring (tail -f) was on for this tab.
+        var isMonitoring: Bool
 
-        init(path: String, caretPosition: Int = 0, firstVisibleLine: Int = 0) {
+        init(path: String, caretPosition: Int = 0, firstVisibleLine: Int = 0, isMonitoring: Bool = false) {
             self.path = path
             self.caretPosition = caretPosition
             self.firstVisibleLine = firstVisibleLine
+            self.isMonitoring = isMonitoring
+        }
+
+        private enum CodingKeys: String, CodingKey { case path, caretPosition, firstVisibleLine, isMonitoring }
+
+        /// Sessions written before monitoring existed have no `isMonitoring`: read them as off,
+        /// rather than discarding the whole session.
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            path = try c.decode(String.self, forKey: .path)
+            caretPosition = try c.decode(Int.self, forKey: .caretPosition)
+            firstVisibleLine = try c.decode(Int.self, forKey: .firstVisibleLine)
+            isMonitoring = try c.decodeIfPresent(Bool.self, forKey: .isMonitoring) ?? false
         }
     }
 
@@ -66,9 +81,7 @@ struct SessionState: Codable, Equatable {
 /// cannot be read is simply no session.
 enum SessionStore {
     static var defaultURL: URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSTemporaryDirectory())
-        return base.appendingPathComponent("MacPad++/session.json")
+        AppEnvironment.supportDirectory.appendingPathComponent("session.json")
     }
 
     static func load(from url: URL = defaultURL) -> SessionState? {
