@@ -1,0 +1,76 @@
+#!/bin/zsh
+# Builds the editor engine MacPad++ links against, from the read-only Notepad++ tree in vendor/:
+#   build/deps/Scintilla.framework   (Scintilla's own Xcode project, Cocoa backend)
+#   build/deps/liblexilla.a          (compiled here directly; see below)
+#
+# Lexilla is not built from its Xcode project: that project hard-codes a signing team and does
+# not list the three lexers Notepad++ adds (LexObjC, LexSearchResult, LexUser), so it fails to
+# link. Compiling lexers/*.cxx + lexlib/*.cxx + src/Lexilla.cxx picks them up without editing
+# the vendor tree.
+#
+# Usage: scripts/build-deps.sh [--clean]      (macOS, Xcode command-line tools, arm64)
+set -euo pipefail
+
+ROOT=${0:A:h:h}
+NPP=$ROOT/vendor/notepad-plus-plus
+OUT=$ROOT/build/deps
+OBJ=$ROOT/build/obj-lexilla
+TARGET=arm64-apple-macos13.0
+
+[[ ${1:-} == --clean ]] && rm -rf "$OUT" "$OBJ" "$ROOT/build/dd-scintilla"
+mkdir -p "$OUT" "$OBJ" "$OBJ/shim"
+
+echo "== Scintilla.framework"
+xcodebuild -quiet \
+  -project "$NPP/scintilla/cocoa/Scintilla/Scintilla.xcodeproj" -scheme Scintilla \
+  -configuration Release -arch arm64 -derivedDataPath "$ROOT/build/dd-scintilla" \
+  SYMROOT="$OUT" CONFIGURATION_BUILD_DIR="$OUT" MACOSX_DEPLOYMENT_TARGET=13.0 \
+  CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= CODE_SIGN_STYLE=Manual \
+  build
+
+# Notepad++ appended an unguarded C++ block (SearchResultMarkings, uses std::vector) to the public
+# Scintilla.h. Swift's bridging header is compiled as plain Objective-C, so guard it — in the built
+# framework's copy only; vendor/ stays pristine.
+SCIH=$OUT/Scintilla.framework/Headers/Scintilla.h
+if ! grep -q "MacPad++: C++-only" "$SCIH"; then
+  perl -0pi -e 's/(#include <vector>\r?\n.*?SearchResultMarkingLine \*_markings;\r?\n\};\r?\n)/\/* MacPad++: C++-only *\/\n#ifdef __cplusplus\n$1#endif\n/s' "$SCIH"
+  grep -q "MacPad++: C++-only" "$SCIH" || { echo "failed to guard C++ block in $SCIH" >&2; exit 1; }
+fi
+
+echo "== liblexilla.a"
+# LexUser.cxx includes <windows.h>; the only thing it needs from the MSVC world is _itoa.
+cat > "$OBJ/shim/windows.h" <<'EOF'
+#pragma once
+static inline char *_itoa(int value, char *buf, int radix) {
+	char tmp[33]; int i = 0; unsigned v = (radix == 10 && value < 0) ? -(unsigned)value : (unsigned)value;
+	do { int d = v % radix; tmp[i++] = (char)(d < 10 ? '0' + d : 'a' + d - 10); v /= radix; } while (v);
+	char *p = buf; if (radix == 10 && value < 0) *p++ = '-';
+	while (i) *p++ = tmp[--i];
+	*p = 0; return buf;
+}
+EOF
+LEX=$NPP/lexilla
+CXXFLAGS=(-target $TARGET -std=c++17 -O2 -fPIC -DNDEBUG
+  -I"$LEX/include" -I"$LEX/lexlib" -I"$NPP/scintilla/include" -I"$OBJ/shim"
+  -Wno-deprecated-declarations)
+
+srcs=("$LEX"/lexers/*.cxx(N) "$LEX"/lexlib/*.cxx(N) "$LEX/src/Lexilla.cxx")
+objs=() stale=()
+for src in $srcs; do
+  o=$OBJ/${src:h:t}_${src:t:r}.o
+  objs+=$o
+  [[ ! -f $o || $src -nt $o ]] && stale+=("$src" "$o")
+done
+echo "${#objs} sources, $(( ${#stale} / 2 )) to compile"
+if (( ${#stale} )); then
+  # Flags travel in the environment (no spaces in them); xargs supplies "<src> <obj>" pairs.
+  export LEXFLAGS="${CXXFLAGS[*]}"
+  print -rN -- $stale | xargs -0 -n2 -P"$(sysctl -n hw.ncpu)" \
+    sh -c 'xcrun clang++ $LEXFLAGS -c "$1" -o "$2"' _
+fi
+rm -f "$OUT/liblexilla.a"
+xcrun libtool -static -o "$OUT/liblexilla.a" $objs
+cp "$LEX/include/Lexilla.h" "$LEX/include/SciLexer.h" "$OUT/"
+
+echo "== done: $OUT"
+ls -1 "$OUT"
