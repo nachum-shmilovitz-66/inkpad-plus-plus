@@ -18,9 +18,11 @@ targets:
     platform: macOS
     sources:
       - path: MacPad/Sources
+      - path: MacPad/Resources
     settings:
       base:
         PRODUCT_NAME: MacPad++
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         PRODUCT_MODULE_NAME: MacPad
         PRODUCT_BUNDLE_IDENTIFIER: app.macpad.MacPad
         INFOPLIST_FILE: MacPad/Info.plist
