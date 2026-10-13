@@ -1,6 +1,6 @@
 import AppKit
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     static var shared: AppDelegate { NSApp.delegate as! AppDelegate }
 
     /// Notepad++ is a single-window editor: every file is a tab in this window.
@@ -44,6 +44,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @IBAction func newDocument(_ sender: Any?) {
         mainWindow.newTab()
         mainWindow.showWindow(nil)
+    }
+
+    /// Rebuilt each time the menu opens, so it always matches the stored list.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        let recent = RecentFilesStore.shared.files
+        guard !recent.isEmpty else {
+            let empty = NSMenuItem(title: "No Recent Files", action: nil, keyEquivalent: "")
+            empty.isEnabled = false
+            menu.addItem(empty)
+            return
+        }
+        for url in recent.urls {
+            let item = NSMenuItem(title: url.lastPathComponent,
+                                  action: #selector(openRecentFile(_:)), keyEquivalent: "")
+            item.target = self
+            item.toolTip = url.path
+            item.representedObject = url
+            menu.addItem(item)
+        }
+        menu.addItem(.separator())
+        let clear = NSMenuItem(title: "Clear Recent Files",
+                               action: #selector(clearRecentFiles(_:)), keyEquivalent: "")
+        clear.target = self
+        menu.addItem(clear)
+    }
+
+    /// A file that has gone away since it was listed drops off the list instead of opening.
+    @IBAction func openRecentFile(_ sender: Any?) {
+        guard let url = (sender as? NSMenuItem)?.representedObject as? URL else { return }
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            RecentFilesStore.shared.remove(url)
+            NSSound.beep()
+            return
+        }
+        mainWindow.open(url)
+        mainWindow.showWindow(nil)
+    }
+
+    @IBAction func clearRecentFiles(_ sender: Any?) {
+        RecentFilesStore.shared.clear()
+        NSDocumentController.shared.clearRecentDocuments(nil)
     }
 
     @IBAction func openDocument(_ sender: Any?) {

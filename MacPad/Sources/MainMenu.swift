@@ -51,6 +51,11 @@ enum MainMenu {
         let menu = NSMenu(title: "File")
         menu.addItem(item("New", #selector(AppDelegate.newDocument(_:)), "n"))
         menu.addItem(item("Open…", #selector(AppDelegate.openDocument(_:)), "o"))
+        let recent = NSMenu(title: "Recent Files")
+        recent.delegate = AppDelegate.shared
+        let recentItem = NSMenuItem(title: "Recent Files", action: nil, keyEquivalent: "")
+        recentItem.submenu = recent
+        menu.addItem(recentItem)
         menu.addItem(.separator())
         menu.addItem(item("Close Tab", #selector(MainWindowController.closeTab(_:)), "w"))
         menu.addItem(item("Close Window", #selector(NSWindow.performClose(_:)), "w", [.command, .shift]))

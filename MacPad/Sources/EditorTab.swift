@@ -52,6 +52,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         encoding = loaded.encoding
         applyLanguage(LanguageCatalog.shared.language(for: url))
         NSDocumentController.shared.noteNewRecentDocumentURL(url)
+        RecentFilesStore.shared.record(url)
         onChange?()
     }
 
@@ -71,6 +72,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         editor.send(SCI_SETSAVEPOINT)
         if languageChanged { applyLanguage(LanguageCatalog.shared.language(for: url)) }
         NSDocumentController.shared.noteNewRecentDocumentURL(url)
+        RecentFilesStore.shared.record(url)
         onChange?()
         return true
     }
