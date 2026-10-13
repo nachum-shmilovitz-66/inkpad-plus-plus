@@ -39,6 +39,14 @@ scripts/build-deps.sh && xcodegen && xcodebuild -project MacPad++.xcodeproj -sch
 
 App: `build/dd-app/Build/Products/Debug/MacPad++.app`.
 
+Tests: `xcodebuild test -project MacPad++.xcodeproj -scheme MacPad++` (target `MacPad++Tests`; the
+app's module is `MacPad`, since `MacPad++` is not a legal Swift module name).
+
+Installer: `scripts/make-pkg.sh` → `dist/MacPad++-<version>.pkg` (tests, Release build, signing,
+then `pkgbuild` + `productbuild`; installs into `/Applications`). A `.pkg` is the project's installer
+format — not a `.dmg`. Note the two identity classes: a Developer ID *Application* certificate signs
+the app, a Developer ID *Installer* certificate signs the package.
+
 ## Vendor quirks (handled without editing vendor/)
 
 - Lexilla's Xcode project hard-codes signing team 4F446KW87E and omits the three lexers Notepad++

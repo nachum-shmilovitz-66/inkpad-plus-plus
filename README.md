@@ -17,8 +17,11 @@ xcodegen                  # generates MacPad++.xcodeproj
 open MacPad++.xcodeproj
 ```
 
-Installer: `scripts/make-dmg.sh` → `dist/MacPad++-<version>.dmg` (signed with a Developer ID
-certificate if one is in the keychain; set `NOTARY_PROFILE` to notarize).
+Installer: `scripts/make-pkg.sh` → `dist/MacPad++-<version>.pkg`, which installs `MacPad++.app`
+into `/Applications`. It runs the unit tests first, then builds Release. The app is signed with a
+Developer ID Application certificate and the package with a Developer ID Installer certificate when
+those are in the keychain (override with `SIGN_IDENTITY` / `PKG_SIGN_IDENTITY`, or `-` for ad-hoc
+and unsigned); set `NOTARY_PROFILE` to notarize.
 
 ## License
 
