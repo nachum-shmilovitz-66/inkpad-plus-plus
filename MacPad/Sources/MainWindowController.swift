@@ -223,15 +223,21 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private func showEncodingMenu(at label: NSView) {
         guard let tab = activeTab, !tab.isMonitoring else { NSSound.beep(); return }
         let menu = NSMenu()
-        for entry in StatusBarMenu.encodingItems(current: tab.encoding) {
+        let entries = StatusBarMenu.encodingItems(current: tab.encoding)
+        encodingMenuChoices = entries.map(\.value)
+        for (index, entry) in entries.enumerated() {
             let item = NSMenuItem(title: entry.title, action: #selector(convertEncoding(_:)), keyEquivalent: "")
-            item.representedObject = entry.value.statusName
+            item.tag = index
             item.state = entry.isCurrent ? .on : .off
             item.target = self
             menu.addItem(item)
         }
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: label.bounds.maxY + 4), in: label)
     }
+
+    /// The encodings behind the open encoding menu, by item tag (code pages carry a value, so
+    /// items cannot be matched back by name alone).
+    private var encodingMenuChoices: [TextEncoding] = []
 
     private func showLineEndingMenu(at label: NSView) {
         guard let tab = activeTab, !tab.isMonitoring else { NSSound.beep(); return }
@@ -247,8 +253,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 
     @objc private func convertEncoding(_ sender: NSMenuItem) {
-        guard let tab = activeTab, let name = sender.representedObject as? String,
-              let target = TextEncoding.menuOrder.first(where: { $0.statusName == name }) else { return }
+        guard let tab = activeTab, encodingMenuChoices.indices.contains(sender.tag) else { return }
+        let target = encodingMenuChoices[sender.tag]
         do {
             try tab.convertEncoding(to: target)
         } catch {

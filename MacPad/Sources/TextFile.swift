@@ -1,12 +1,13 @@
 import Foundation
 
 /// File encodings, named as in Notepad++'s Encoding menu and status bar.
-/// Milestone 1 detects BOMs and valid UTF-8 only; Notepad++'s uchardet-based detection of
-/// other code pages arrives with milestone 2.
 enum TextEncoding: Equatable {
     case utf8, utf8BOM, utf16LE, utf16BE
-    /// "ANSI": a single-byte code page. Windows-1252 until code-page detection lands.
+    /// "ANSI": Windows-1252 (Notepad++'s ANSI is the system code page; 1252 is the Western one).
     case ansi
+    /// A legacy code page from Notepad++'s Character sets (e.g. 1255 Windows-1255 Hebrew),
+    /// found by encoding detection (MAC-10). Always one listed in `codePageTable`.
+    case codePage(Int)
 
     var statusName: String {
         switch self {
@@ -15,7 +16,15 @@ enum TextEncoding: Equatable {
         case .utf16LE: "UTF-16 LE BOM"
         case .utf16BE: "UTF-16 BE BOM"
         case .ansi: "ANSI"
+        case .codePage(let cp): codePageTable.first { $0.codePage == cp }?.name ?? "Code page \(cp)"
         }
+    }
+
+    /// Foundation's encoding for a Windows code page, if macOS can convert it.
+    static func stringEncoding(forCodePage cp: Int) -> String.Encoding? {
+        let cf = CFStringConvertWindowsCodepageToEncoding(UInt32(cp))
+        guard cf != kCFStringEncodingInvalidId, CFStringIsEncodingAvailable(cf) else { return nil }
+        return String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(cf))
     }
 }
 
@@ -73,8 +82,15 @@ enum TextFile {
             utf8 = convert(data.dropFirst(2), from: .utf16BigEndian)
             encoding = .utf16BE
         } else if String(data: data, encoding: .utf8) != nil {
+            // Valid UTF-8 first: multi-byte UTF-8 sequences almost never occur by chance in a
+            // legacy code page, while uchardet can misread short UTF-8 text (Notepad++ itself
+            // has to ignore its TIS-620 answers for that reason).
             utf8 = data
             encoding = .utf8
+        } else if let cp = EncodingDetector.detectCodePage(data),
+                  let decoded = decodeCodePage(data, cp) {
+            utf8 = decoded.utf8
+            encoding = decoded.encoding
         } else {
             utf8 = convert(data, from: .windowsCP1252)
             encoding = .ansi
@@ -88,16 +104,33 @@ enum TextFile {
             return utf8
         case .utf8BOM:
             return Data([0xEF, 0xBB, 0xBF]) + utf8
-        case .utf16LE, .utf16BE, .ansi:
+        case .utf16LE, .utf16BE, .ansi, .codePage:
             guard let text = String(data: utf8, encoding: .utf8) else { throw SaveError.unrepresentable(encoding) }
-            let target: String.Encoding = encoding == .utf16LE ? .utf16LittleEndian
-                : encoding == .utf16BE ? .utf16BigEndian : .windowsCP1252
+            let target: String.Encoding
+            switch encoding {
+            case .utf16LE: target = .utf16LittleEndian
+            case .utf16BE: target = .utf16BigEndian
+            case .codePage(let cp):
+                guard let e = TextEncoding.stringEncoding(forCodePage: cp) else { throw SaveError.unrepresentable(encoding) }
+                target = e
+            default: target = .windowsCP1252
+            }
             guard let body = text.data(using: target, allowLossyConversion: false) else {
                 throw SaveError.unrepresentable(encoding)
             }
             let bom: [UInt8] = encoding == .utf16LE ? [0xFF, 0xFE] : encoding == .utf16BE ? [0xFE, 0xFF] : []
             return Data(bom) + body
         }
+    }
+
+    /// Decodes with a detected code page. 1252 and ISO 8859-1 are reported as ANSI (that is what
+    /// ANSI means here); a code page macOS cannot convert, or bytes it rejects, give nil.
+    static func decodeCodePage(_ data: Data, _ cp: Int) -> (utf8: Data, encoding: TextEncoding)? {
+        if cp == 1252 || cp == 28591 { return (convert(data, from: .windowsCP1252), .ansi) }
+        guard codePageTable.contains(where: { $0.codePage == cp }),
+              let e = TextEncoding.stringEncoding(forCodePage: cp),
+              let text = String(data: data, encoding: e) else { return nil }
+        return (Data(text.utf8), .codePage(cp))
     }
 
     private static func convert(_ data: Data, from encoding: String.Encoding) -> Data {

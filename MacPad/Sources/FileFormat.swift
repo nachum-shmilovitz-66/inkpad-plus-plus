@@ -80,8 +80,14 @@ enum StatusBarMenu {
         let isCurrent: Bool
     }
 
+    /// The five Notepad++ encodings, plus — when the document is in a detected legacy code page
+    /// such as Windows-1255 — that code page, checked, so it can be converted back to after a change.
     static func encodingItems(current: TextEncoding) -> [Item<TextEncoding>] {
-        TextEncoding.menuOrder.map { Item(title: $0.statusName, value: $0, isCurrent: $0 == current) }
+        var items = TextEncoding.menuOrder.map { Item(title: $0.statusName, value: $0, isCurrent: $0 == current) }
+        if !TextEncoding.menuOrder.contains(current) {
+            items.append(Item(title: current.statusName, value: current, isCurrent: true))
+        }
+        return items
     }
 
     static func lineEndingItems(current: LineEnding) -> [Item<LineEnding>] {

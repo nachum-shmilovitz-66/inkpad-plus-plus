@@ -90,8 +90,12 @@ brace match, Notepad++-style status bar; BOM/UTF-8/UTF-16/ANSI decode + byte-exa
 Known approximations, to be closed in later milestones:
 - Keyword-set mapping ports only the generic rule and the cpp family (`setCppLexer`); other
   per-language setup in `ScintillaEditView::defineDocType` (HTML-embedded scripts, etc.) is milestone 4.
-- "ANSI" = Windows-1252; Notepad++ uses the system code page + uchardet (milestone 2). A Hebrew
-  (Windows-1255) file opens as mojibake until then.
+- Encoding detection (MAC-10) is Notepad++'s: uchardet (`build/deps/libuchardet.a`, from
+  `PowerEditor/src/uchardet`) + EncodingMapper (`CodePageTable.swift`, generated, 46 code pages).
+  Differences: valid UTF-8 is accepted before asking uchardet; "ANSI" is Windows-1252 (Notepad++
+  uses the system code page), so detected 1252 / ISO 8859-1 show as ANSI; uchardet's KOI8-R and
+  ISO-8859-8-I names are mapped (Notepad++'s table misses them). Converting *to* an arbitrary code
+  page (Encoding › Character sets menu) is not built yet.
 - Font sizes are scaled by 4/3 (Windows 96 dpi points → macOS points); new files use LF, not CRLF.
 - No first-line language detection (`#!/bin/bash`, `<?xml`) yet.
 

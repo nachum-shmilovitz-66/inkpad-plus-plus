@@ -72,5 +72,20 @@ rm -f "$OUT/liblexilla.a"
 xcrun libtool -static -o "$OUT/liblexilla.a" $objs
 cp "$LEX/include/Lexilla.h" "$LEX/include/SciLexer.h" "$OUT/"
 
+echo "== libuchardet.a"
+# Notepad++'s copy of Mozilla's universal charset detector (encoding detection, MAC-10).
+UCD=$NPP/PowerEditor/src/uchardet
+UOBJ=$ROOT/build/obj-uchardet
+mkdir -p "$UOBJ"
+uobjs=()
+for src in "$UCD"/*.cpp(N); do
+  o=$UOBJ/${src:t:r}.o
+  uobjs+=$o
+  [[ -f $o && ! $src -nt $o ]] || xcrun clang++ -target $TARGET -std=c++17 -O2 -fPIC -DNDEBUG -c "$src" -o "$o"
+done
+rm -f "$OUT/libuchardet.a"
+xcrun libtool -static -o "$OUT/libuchardet.a" $uobjs
+cp "$UCD/uchardet.h" "$OUT/"
+
 echo "== done: $OUT"
 ls -1 "$OUT"

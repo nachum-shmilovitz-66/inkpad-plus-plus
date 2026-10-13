@@ -60,11 +60,12 @@ struct IncrementalDecoder {
     mutating func feed(_ bytes: Data) -> Data {
         var data = pending
         data.append(bytes)
+        if case .codePage(let cp) = encoding { return feedCodePage(cp, data) }
         let cut: Int
         switch encoding {
         case .utf8, .utf8BOM: cut = Self.completeUTF8Prefix(data)
         case .utf16LE, .utf16BE: cut = Self.completeUTF16Prefix(data, littleEndian: encoding == .utf16LE)
-        case .ansi: cut = data.count
+        case .ansi, .codePage: cut = data.count
         }
         let complete = Data(data.prefix(cut))
         pending = Data(data.dropFirst(cut))
@@ -74,11 +75,27 @@ struct IncrementalDecoder {
         case .utf16LE, .utf16BE:
             return Data(Self.utf16Units(complete, littleEndian: encoding == .utf16LE)
                 .withUnsafeBufferPointer { String(decoding: $0, as: UTF16.self) }.utf8)
-        case .ansi:
+        case .ansi, .codePage:
             let text = String(data: complete, encoding: .windowsCP1252)
                 ?? String(data: complete, encoding: .isoLatin1) ?? ""
             return Data(text.utf8)
         }
+    }
+
+    /// Legacy code pages: single-byte ones always decode; for double-byte ones (Shift-JIS, GBK,
+    /// Big5, EUC-KR…) a trailing lead byte waits for its partner.
+    private mutating func feedCodePage(_ cp: Int, _ data: Data) -> Data {
+        pending = Data()
+        guard let e = TextEncoding.stringEncoding(forCodePage: cp) else {
+            return Data((String(data: data, encoding: .isoLatin1) ?? "").utf8)
+        }
+        if let text = String(data: data, encoding: e) { return Data(text.utf8) }
+        if data.count > 1, let text = String(data: data.dropLast(), encoding: e) {
+            pending = Data(data.suffix(1))
+            return Data(text.utf8)
+        }
+        if data.count == 1 { pending = data; return Data() }
+        return Data((String(data: data, encoding: .isoLatin1) ?? "").utf8)  // bytes the code page rejects
     }
 
     /// Length of the prefix that ends on a UTF-8 character boundary. Invalid bytes count as

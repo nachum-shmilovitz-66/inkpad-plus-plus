@@ -5,3 +5,4 @@
 #import <Scintilla/Scintilla.h>
 #import "SciLexer.h"
 #import "Lexilla.h"
+#import "uchardet.h"
