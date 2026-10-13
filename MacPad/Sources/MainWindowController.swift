@@ -155,6 +155,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private func add(_ tab: EditorTab) {
         tab.hostWindow = window
         tab.onChange = { [weak self] in self?.refresh() }
+        tab.onExternalChange = { [weak self] _ in self?.presentExternalChangeIfNeeded() }
         tab.editor.isHidden = true
         editorContainer.addSubview(tab.editor)
         NSLayoutConstraint.activate([
@@ -378,5 +379,55 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             language: state.language, length: state.length, lines: state.lines,
             line: state.line, column: state.column, position: state.position,
             lineEnding: state.lineEnding, encoding: state.encoding, overtype: state.overtype)
+        presentExternalChangeIfNeeded()  // a tab just shown may have a change waiting
+    }
+
+    // MARK: - File Status Auto-Detection (MAC-20)
+
+    private var isPromptingExternalChange = false
+    private var activationObserver: NSObjectProtocol?
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        presentExternalChangeIfNeeded()
+    }
+
+    /// Asks about a file another program changed or deleted — only for the visible tab, only with
+    /// MacPad++ in front, one question at a time (as Notepad++ checks when it regains focus).
+    /// Other tabs keep their pending change until they are shown.
+    func presentExternalChangeIfNeeded() {
+        if activationObserver == nil {
+            activationObserver = NotificationCenter.default.addObserver(
+                forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+            ) { [weak self] _ in self?.presentExternalChangeIfNeeded() }
+        }
+        guard !isPromptingExternalChange, NSApp.isActive, let window, window.isKeyWindow,
+              window.attachedSheet == nil, let tab = activeTab, let change = tab.pendingExternalChange,
+              let path = tab.fileURL?.path else { return }
+        switch ExternalChangePolicy.action(for: change, isModified: tab.isModified,
+                                           updateSilently: FileStatusPreferences.updateSilently) {
+        case .none:
+            tab.resolveExternalChange(accept: false)
+        case .reloadSilently:
+            tab.resolveExternalChange(accept: true)
+        case .ask(let prompt):
+            let texts = prompt.texts(path: path)
+            let alert = NSAlert()
+            alert.messageText = texts.title
+            alert.informativeText = texts.message
+            alert.addButton(withTitle: texts.yes)
+            alert.addButton(withTitle: texts.no)
+            isPromptingExternalChange = true
+            alert.beginSheetModal(for: window) { [weak self, weak tab] response in
+                guard let self, let tab else { return }
+                self.isPromptingExternalChange = false
+                let accepted = response == .alertFirstButtonReturn
+                tab.resolveExternalChange(accept: accepted)
+                if prompt == .keepDeleted && !accepted, let index = self.tabs.items.firstIndex(where: { $0 === tab }) {
+                    self.closeTab(at: index)
+                } else {
+                    self.refresh()
+                }
+            }
+        }
     }
 }

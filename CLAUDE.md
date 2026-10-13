@@ -68,6 +68,9 @@ the app, a Developer ID *Installer* certificate signs the package.
   to whatever app has focus (on 2026-10-13 a stray `x` + ⌘S reached the user's Chrome). Use
   `key code` (layout-independent; the user's input source is Hebrew, so `keystroke "x"` types ש)
   and check `frontmost` first. `pkill MacPad++` fails on the `+`; use `pkill -f 'MacPad\+\+\.app/Contents/MacOS'`.
+- A Debug build launched by hand shares the installed app's Recent Files and session (same bundle
+  id). For manual checks launch it isolated: `open --env MACPAD_ISOLATED_STORAGE=1 -a <app> <file>`
+  (tests are isolated automatically — MAC-23). Never quit or drive the user's own running MacPad++.
 
 ## Milestones (each one ends with a working app)
 

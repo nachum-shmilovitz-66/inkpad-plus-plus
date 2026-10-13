@@ -6,9 +6,12 @@ import AppKit
 /// every test that opens a file would land in the user's Recent Files, and the test host would
 /// restore and overwrite the user's session (MAC-23).
 enum AppEnvironment {
+    /// The unit tests' host — or a manual check launched with MACPAD_ISOLATED_STORAGE=1
+    /// (`open --env MACPAD_ISOLATED_STORAGE=1 -a …`), which must not touch the user's data either.
     static let isRunningTests: Bool = {
         let env = ProcessInfo.processInfo.environment
         return env["XCTestConfigurationFilePath"] != nil || env["XCTestSessionIdentifier"] != nil
+            || env["MACPAD_ISOLATED_STORAGE"] == "1"
     }()
 
     /// Recent Files storage: the real defaults, or a private suite (emptied at launch) under test.

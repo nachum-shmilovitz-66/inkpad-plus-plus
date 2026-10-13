@@ -21,7 +21,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
     weak var hostWindow: NSWindow?
 
     /// Edited since the last save, or converted to another encoding (which leaves the buffer as is).
-    var isModified: Bool { editor.send(SCI_GETMODIFY) != 0 || format.isEncodingChanged }
+    var isModified: Bool { editor.send(SCI_GETMODIFY) != 0 || format.isEncodingChanged || isMissingOnDisk }
     /// An untouched "new N" document, which Notepad++ reuses when a file is opened.
     var isPristineUntitled: Bool { fileURL == nil && !isModified && editor.send(SCI_GETLENGTH) == 0 }
     var displayName: String { TabTitle.displayName(url: fileURL, untitledNumber: untitledNumber) }
@@ -32,6 +32,15 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
     private var watcher: FileWatcher?
     private var snapshot: FileSnapshot?
     private var decoder: IncrementalDecoder?
+
+    /// File Status Auto-Detection (MAC-20): a change made by another program, waiting for the
+    /// host to ask about it (it asks only for the visible tab, with the app in front).
+    private(set) var pendingExternalChange: FileChange?
+    var onExternalChange: ((EditorTab) -> Void)?
+    private var diskWatcher: FileWatcher?
+    private var diskSnapshot: FileSnapshot?
+    /// Deleted on disk and kept in the editor: unsaved until written back.
+    private var isMissingOnDisk = false
 
     init(untitledNumber: Int) {
         self.untitledNumber = untitledNumber
@@ -46,6 +55,8 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
 
     func detach() {
         stopMonitoring()
+        stopDiskWatch()
+        onExternalChange = nil
         editor.delegate = nil
         onChange = nil
         hostWindow = nil
@@ -62,6 +73,9 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         editor.send(SCI_GOTOPOS, 0)
         fileURL = url
         format = FileFormat(encoding: loaded.encoding)
+        isMissingOnDisk = false
+        pendingExternalChange = nil
+        startDiskWatch()
         applyLanguage(LanguageCatalog.shared.language(for: url))
         AppEnvironment.noteRecentDocument(url)
         RecentFilesStore.shared.record(url)
@@ -82,6 +96,9 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         let languageChanged = fileURL?.pathExtension != url.pathExtension
         fileURL = url
         format.markSaved()
+        isMissingOnDisk = false
+        pendingExternalChange = nil
+        startDiskWatch()  // our own write is the new baseline, never a prompt
         editor.send(SCI_SETSAVEPOINT)
         if languageChanged { applyLanguage(LanguageCatalog.shared.language(for: url)) }
         AppEnvironment.noteRecentDocument(url)
@@ -191,6 +208,8 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
     func startMonitoring(pollInterval: TimeInterval = 1.0) throws {
         guard !isMonitoring, let url = fileURL else { return }
         guard !isModified else { throw MonitoringError.unsavedChanges }
+        stopDiskWatch()  // monitoring follows changes itself
+        pendingExternalChange = nil
         isMonitoring = true
         do {
             try reloadForMonitoring(url)
@@ -212,6 +231,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         decoder = nil
         isMonitoring = false
         editor.send(SCI_SETREADONLY, 0)
+        startDiskWatch()
         onChange?()
     }
 
@@ -279,6 +299,79 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         editor.send(SCI_EMPTYUNDOBUFFER)
         editor.send(SCI_SETSAVEPOINT)
         editor.send(SCI_SETREADONLY, isMonitoring ? 1 : 0)
+    }
+
+    // MARK: - File Status Auto-Detection (changes made by other programs)
+
+    private func startDiskWatch(pollInterval: TimeInterval = 2.0) {
+        stopDiskWatch()
+        guard let url = fileURL, !isMonitoring else { return }
+        diskSnapshot = FileSnapshot.of(path: url.path)
+        let watcher = FileWatcher(path: url.path, pollInterval: pollInterval) { [weak self] in self?.checkDiskState() }
+        watcher.start()
+        diskWatcher = watcher
+    }
+
+    private func stopDiskWatch() {
+        diskWatcher?.stop()
+        diskWatcher = nil
+    }
+
+    /// Compares the file with what was last loaded or saved (the watcher calls this; tests call
+    /// it directly). A change is recorded once and reported to the host; nothing more is noted
+    /// until the host resolves it.
+    func checkDiskState() {
+        guard !isMonitoring, pendingExternalChange == nil, FileStatusPreferences.isEnabled,
+              let url = fileURL else { return }
+        let current = FileSnapshot.of(path: url.path)
+        let change = FileChange.classify(previous: diskSnapshot, current: current)
+        guard change != .unchanged else { return }
+        // Being kept after deletion and still gone: nothing new to say.
+        if change == .missing && isMissingOnDisk { diskSnapshot = nil; return }
+        diskSnapshot = current
+        pendingExternalChange = change
+        onExternalChange?(self)
+    }
+
+    /// The host's answer. `accept` is "Reload" for a modified file and "Keep" for a deleted one;
+    /// declining a reload keeps the buffer as it is (until the file changes again). The host
+    /// closes the tab itself when the user declines keeping a deleted file.
+    func resolveExternalChange(accept: Bool) {
+        guard let change = pendingExternalChange else { return }
+        pendingExternalChange = nil
+        switch change {
+        case .missing:
+            if accept { isMissingOnDisk = true }
+        case .appended, .replaced:
+            if accept { try? reloadFromDisk() }
+        case .unchanged:
+            break
+        }
+        diskSnapshot = fileURL.flatMap { FileSnapshot.of(path: $0.path) }
+        onChange?()
+    }
+
+    /// Reads the file again, keeping the caret's line and column and the scroll position.
+    func reloadFromDisk() throws {
+        guard let url = fileURL else { return }
+        let loaded = TextFile.decode(try Data(contentsOf: url))
+        let pos = editor.send(SCI_GETCURRENTPOS)
+        let line = editor.send(SCI_LINEFROMPOSITION, pos)
+        let column = editor.send(SCI_GETCOLUMN, pos)
+        let firstVisible = editor.send(SCI_GETFIRSTVISIBLELINE)
+
+        editor.setUTF8Bytes(loaded.utf8)
+        if let eol = loaded.lineEnding { editor.send(SCI_SETEOLMODE, eol.rawValue) }
+        editor.send(SCI_EMPTYUNDOBUFFER)
+        editor.send(SCI_SETSAVEPOINT)
+        format = FileFormat(encoding: loaded.encoding)
+        isMissingOnDisk = false
+
+        let lastLine = max(editor.send(SCI_GETLINECOUNT) - 1, 0)
+        editor.send(SCI_GOTOPOS, editor.send(SCI_FINDCOLUMN, min(line, lastLine), column))
+        editor.send(SCI_SETFIRSTVISIBLELINE, firstVisible)
+        diskSnapshot = FileSnapshot.of(path: url.path)
+        onChange?()
     }
 
     // MARK: - Editor state
