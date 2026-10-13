@@ -47,7 +47,9 @@ app's module is `MacPad`, since `MacPad++` is not a legal Swift module name).
 
 Installer: `scripts/make-pkg.sh` → `dist/MacPad++-<version>.pkg` (tests, Release build, signing,
 then `pkgbuild` + `productbuild`; installs into `/Applications`). A `.pkg` is the project's installer
-format — not a `.dmg`. Note the two identity classes: a Developer ID *Application* certificate signs
+format — not a `.dmg`. The package declares MacPad++ **must-close**: if it is running, Installer asks
+to close it before installing (MAC-19). Only the newest installer is kept — the script deletes older
+`MacPad++-*.pkg` in the output folder after a successful build (user's rule, 2026-10-13). Note the two identity classes: a Developer ID *Application* certificate signs
 the app, a Developer ID *Installer* certificate signs the package.
 
 ## Vendor quirks (handled without editing vendor/)
@@ -109,3 +111,7 @@ macOS 26.6 on Apple Silicon (arm64), Xcode 27.0, Swift 6.4. Progress file for th
 - **`deploy patch`** means, in order: run the unit tests (a failure stops everything) → bump the
   patch → update and close the Jira tickets → commit and push → build the `.pkg` installer into `dist/`
   for every requested platform (currently macOS arm64 only; `.pkg`, never `.dmg`) → ask the user whether to install it.
+- **Installing** (when the user says yes): it needs their admin password / Touch ID, so open the `.pkg`
+  in Installer (`open dist/MacPad++-<v>.pkg`) for them to confirm — never try `sudo installer`. If
+  MacPad++ is running, **ask the user whether to close it** first (it may hold unsaved work); the
+  package's must-close prompt asks again in Installer. Never quit it unasked.

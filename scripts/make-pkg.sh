@@ -11,7 +11,13 @@
 # Notarization (needed for other Macs to open it without a warning) runs only when NOTARY_PROFILE
 # names a profile stored with `xcrun notarytool store-credentials`, and only for a signed package.
 #
+# Running app: the package lists MacPad++ as a "must-close" app, so if it is running when you
+# click Install, macOS Installer asks whether to close it (or cancel) before touching
+# /Applications. Only the Installer app honours this; `installer -pkg` on the command line does not.
+#
 # Usage: scripts/make-pkg.sh             (macOS, Xcode, XcodeGen)
+#        DIST=<dir> scripts/make-pkg.sh  (write the package somewhere other than dist/)
+# Older MacPad++-*.pkg files in the output folder are deleted once the new one is built.
 set -euo pipefail
 
 ROOT=${0:A:h:h}
@@ -61,26 +67,55 @@ pkgbuild --quiet \
   --version "$VERSION" \
   "$COMPONENT"
 
-mkdir -p "$ROOT/dist"
-PKG=$ROOT/dist/MacPad++-$VERSION.pkg
+DIST=${DIST:-$ROOT/dist}
+mkdir -p "$DIST"
+PKG=$DIST/MacPad++-$VERSION.pkg
 rm -f "$PKG"
+
+# Distribution file: synthesized from the component, then MacPad++ is declared must-close so
+# Installer asks to close a running copy first.
+DISTXML=$ROOT/build/MacPad++-distribution.xml
+productbuild --quiet --synthesize --package "$COMPONENT" "$DISTXML"
+python3 -I - "$DISTXML" <<'PY'
+import sys, xml.etree.ElementTree as ET
+path = sys.argv[1]
+tree = ET.parse(path)
+root = tree.getroot()
+ref = next(r for r in root.findall("pkg-ref") if r.get("id") == "app.macpad.MacPad")
+if ref.find("must-close") is None:
+    ET.SubElement(ET.SubElement(ref, "must-close"), "app", id="app.macpad.MacPad")
+# The app is built for Apple Silicon only; do not offer it to Intel Macs.
+options = root.find("options")
+if options is not None:
+    options.set("hostArchitectures", "arm64")
+if root.find("title") is None:
+    title = ET.Element("title"); title.text = "MacPad++"; root.insert(0, title)
+tree.write(path, encoding="utf-8", xml_declaration=True)
+PY
+grep -q '<app id="app.macpad.MacPad"' "$DISTXML" || { echo "must-close missing from $DISTXML" >&2; exit 1; }
 
 PKG_IDENTITY=${PKG_SIGN_IDENTITY:-$(security find-identity -v \
   | sed -n 's/.*"\(Developer ID Installer: [^"]*\)".*/\1/p' | head -1)}
 PKG_IDENTITY=${PKG_IDENTITY:--}
 if [[ $PKG_IDENTITY == - ]]; then
   echo "== No Developer ID Installer identity — building an unsigned package"
-  productbuild --quiet --package "$COMPONENT" "$PKG"
+  productbuild --quiet --distribution "$DISTXML" --package-path "${COMPONENT:h}" "$PKG"
 else
   echo "== Signing installer with: $PKG_IDENTITY"
-  productbuild --quiet --package "$COMPONENT" --sign "$PKG_IDENTITY" "$PKG"
+  productbuild --quiet --distribution "$DISTXML" --package-path "${COMPONENT:h}" --sign "$PKG_IDENTITY" "$PKG"
 fi
-rm -rf "$STAGE" "$COMPONENT"
+rm -rf "$STAGE" "$COMPONENT" "$DISTXML"
 
 if [[ -n ${NOTARY_PROFILE:-} && $PKG_IDENTITY != - ]]; then
   echo "== Notarizing (profile $NOTARY_PROFILE)"
   xcrun notarytool submit "$PKG" --keychain-profile "$NOTARY_PROFILE" --wait
   xcrun stapler staple "$PKG"
 fi
+
+# Only the newest installer is kept (the user's rule, 2026-10-13): older versions are rebuilt from
+# git when needed. Runs last, so a failed build never deletes the previous good package.
+for old in "$DIST"/MacPad++-*.pkg(N); do
+  [[ $old == "$PKG" ]] || { rm -f "$old"; echo "== removed older installer: ${old:t}"; }
+done
 
 echo "== done: $PKG"
