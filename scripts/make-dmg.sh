@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Builds a Release MacPad++.app and packages it as build/MacPad++-<version>.dmg
+# Builds a Release MacPad++.app and packages it as dist/MacPad++-<version>.dmg
 # (drag-to-Applications layout).
 #
 # Signing: uses the first "Developer ID Application" identity in the keychain, with the hardened
@@ -43,7 +43,8 @@ rm -rf "$STAGE"
 mkdir -p "$STAGE"
 ditto "$APP" "$STAGE/MacPad++.app"
 ln -s /Applications "$STAGE/Applications"
-DMG=$ROOT/build/MacPad++-$VERSION.dmg
+mkdir -p "$ROOT/dist"
+DMG=$ROOT/dist/MacPad++-$VERSION.dmg
 rm -f "$DMG"
 hdiutil create -quiet -volname "MacPad++ $VERSION" -srcfolder "$STAGE" -fs HFS+ -format UDZO "$DMG"
 [[ $IDENTITY == - ]] || codesign --force --timestamp --sign "$IDENTITY" "$DMG"

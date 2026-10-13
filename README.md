@@ -17,7 +17,7 @@ xcodegen                  # generates MacPad++.xcodeproj
 open MacPad++.xcodeproj
 ```
 
-Installer: `scripts/make-dmg.sh` → `build/MacPad++-<version>.dmg` (signed with a Developer ID
+Installer: `scripts/make-dmg.sh` → `dist/MacPad++-<version>.dmg` (signed with a Developer ID
 certificate if one is in the keychain; set `NOTARY_PROFILE` to notarize).
 
 ## License
