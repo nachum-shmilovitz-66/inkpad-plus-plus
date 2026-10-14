@@ -1,4 +1,5 @@
 import Security
+import ServiceManagement
 import XCTest
 @testable import MacPad
 
@@ -330,5 +331,53 @@ final class EditorTabTouchIDSaveTests: XCTestCase {
         XCTAssertFalse(offered)
         XCTAssertEqual(runner.runs, 1)
         XCTAssertFalse(tab.isModified)
+    }
+}
+
+/// MAC-27: one popup per save, and the helper is offered on a correctly signed build.
+final class AdminSaveOnePopupTests: XCTestCase {
+    func testANeverRegisteredHelperOnASignedBuildCountsAsNotRegistered() {
+        XCTAssertEqual(AdminHelperStatus.from(.notFound, signedByTeam: true), .notRegistered)
+        XCTAssertEqual(AdminSaveRoute.decide(status: .from(.notFound, signedByTeam: true), setupDeclined: false), .offerSetup)
+    }
+
+    func testStatusMapping() {
+        XCTAssertEqual(AdminHelperStatus.from(.enabled, signedByTeam: true), .enabled)
+        XCTAssertEqual(AdminHelperStatus.from(.requiresApproval, signedByTeam: true), .requiresApproval)
+        XCTAssertEqual(AdminHelperStatus.from(.notRegistered, signedByTeam: true), .notRegistered)
+        for s in [SMAppService.Status.enabled, .requiresApproval, .notRegistered, .notFound] {
+            XCTAssertEqual(AdminHelperStatus.from(s, signedByTeam: false), .unavailable, "unsigned builds never use the helper")
+        }
+    }
+
+    func testAPermissionErrorGoesStraightToTheAdminSaveWithoutAQuestion() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("onepopup-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("hosts")
+        try Data("a\n".utf8).write(to: url)
+        try FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: url.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: dir.path)
+        let savedRunner = PrivilegedSave.runner, savedHelper = AdminHelperSupport.helper
+        defer {
+            PrivilegedSave.runner = savedRunner
+            AdminHelperSupport.helper = savedHelper
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir.path)
+            try? FileManager.default.removeItem(at: dir)
+        }
+        AdminHelperSupport.helper = FakeHelper(status: .unavailable, unlockedDir: dir.path)
+        let runner = CountingRunner(unlockedDir: dir.path)
+        PrivilegedSave.runner = runner
+
+        let tab = EditorTab(untitledNumber: 1)
+        defer { tab.detach() }
+        try tab.load(url)
+        tab.editor.send(SCI_APPENDTEXT, 2, string: "b\n")
+        // No adminSaveConfirmation set: an extra alert here would block the test (no window to
+        // put it on). The only prompt is the system's (the runner).
+        var saved: Bool?
+        tab.save { saved = $0 }
+        XCTAssertEqual(saved, true)
+        XCTAssertEqual(runner.runs, 1)
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "a\nb\n")
     }
 }

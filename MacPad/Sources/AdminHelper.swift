@@ -16,6 +16,23 @@ enum AdminHelperStatus: Equatable {
     case unavailable
 }
 
+extension AdminHelperStatus {
+    /// Maps SMAppService's view to ours. Only builds signed with the team's Developer ID can use the
+    /// helper (code-signing requirements on both ends). macOS reports a daemon that was never
+    /// registered as `.notFound` (MAC-27), so for such a build that means "not registered yet":
+    /// registering is offered, and a helper that is truly missing makes registration fail, after
+    /// which the password prompt is used.
+    static func from(_ service: SMAppService.Status, signedByTeam: Bool) -> AdminHelperStatus {
+        guard signedByTeam else { return .unavailable }
+        switch service {
+        case .enabled: return .enabled
+        case .requiresApproval: return .requiresApproval
+        case .notRegistered, .notFound: return .notRegistered
+        @unknown default: return .unavailable
+        }
+    }
+}
+
 /// Which way an admin save goes.
 enum AdminSaveRoute: Equatable {
     case touchID
@@ -90,15 +107,10 @@ final class SMAdminHelper: AdminHelperService {
     private let service = SMAppService.daemon(plistName: HelperIdentity.daemonPlist)
 
     var status: AdminHelperStatus {
-        // Code-signing requirements on both ends only match the team's Developer ID builds.
-        guard AdminHelperSupport.signingTeam == HelperIdentity.teamID else { return .unavailable }
-        switch service.status {
-        case .enabled: return .enabled
-        case .requiresApproval: return .requiresApproval
-        case .notRegistered: return .notRegistered
-        case .notFound: return .unavailable
-        @unknown default: return .unavailable
-        }
+        let status = AdminHelperStatus.from(service.status,
+                                            signedByTeam: AdminHelperSupport.signingTeam == HelperIdentity.teamID)
+        NSLog("MacPad++: privileged helper status \(service.status.rawValue) -> \(status)")
+        return status
     }
 
     func register() throws { try service.register() }

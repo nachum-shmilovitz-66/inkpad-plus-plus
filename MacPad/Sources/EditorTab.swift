@@ -105,24 +105,18 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         completion(true)
     }
 
-    /// MAC-22: "You don't have permission to save …" → Save as Administrator…
+    /// MAC-22 / MAC-27: a permission error goes straight to the administrator save (one popup).
     private func offerAdminSave(_ data: Data, to url: URL, completion: @escaping (Bool) -> Void) {
         let proceed: (Bool) -> Void = { [weak self] yes in
             guard let self else { return }
             guard yes else { completion(false); return }
             self.adminSave(data, to: url, completion: completion)
         }
+        // One popup per save, as with Installer (MAC-27): macOS's own prompt already names the file
+        // ("MacPad++ needs administrator rights to save …") and has Cancel, so MacPad++ does not ask
+        // first. Tests may still intercept the step.
         if let adminSaveConfirmation { adminSaveConfirmation(url, proceed); return }
-        let alert = NSAlert()
-        alert.messageText = "You don\u{2019}t have permission to save \u{201C}\(url.lastPathComponent)\u{201D}."
-        alert.informativeText = "\(url.path)\n\nMacPad++ can save it with administrator rights."
-        alert.addButton(withTitle: "Save as Administrator\u{2026}")
-        alert.addButton(withTitle: "Cancel")
-        if let hostWindow {
-            alert.beginSheetModal(for: hostWindow) { proceed($0 == .alertFirstButtonReturn) }
-        } else {
-            proceed(alert.runModal() == .alertFirstButtonReturn)
-        }
+        proceed(true)
     }
 
     /// Answers "Use Touch ID for administrator saves?"; nil means the standard alert (tests set it).
@@ -182,11 +176,16 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         alert.addButton(withTitle: "Not Now")
         alert.addButton(withTitle: "Don\u{2019}t Ask Again")
         let handle: (NSApplication.ModalResponse) -> Void = { response in
+            let choice: HelperSetupChoice
             switch response {
-            case .alertFirstButtonReturn: answer(.setUp)
-            case .alertThirdButtonReturn: answer(.dontAskAgain)
-            default: answer(.notNow)
+            case .alertFirstButtonReturn: choice = .setUp
+            case .alertThirdButtonReturn: choice = .dontAskAgain
+            default: choice = .notNow
             }
+            // The password prompt that follows blocks the app; let this sheet leave the screen
+            // first, so only one dialog is ever visible (MAC-27).
+            alert.window.orderOut(nil)
+            DispatchQueue.main.async { answer(choice) }
         }
         if let hostWindow { alert.beginSheetModal(for: hostWindow, completionHandler: handle) } else { handle(alert.runModal()) }
     }
