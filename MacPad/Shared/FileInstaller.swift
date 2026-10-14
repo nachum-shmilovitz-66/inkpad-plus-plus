@@ -12,13 +12,43 @@ enum FileInstaller {
         case invalidPath(String)
         case tooLarge(Int)
         case io(String)
+        case protectedPath(String)
 
         var errorDescription: String? {
             switch self {
             case .invalidPath(let why): return "Not a file path that can be saved: \(why)"
             case .tooLarge(let bytes): return "The document is too large to save this way (\(bytes) bytes)."
             case .io(let message): return message
+            case .protectedPath(let path):
+                return "MacPad++ does not save \(path) as administrator: it is a system startup or security file. Use Terminal if you really mean to change it."
             }
+        }
+    }
+
+    /// MAC-55: files that start programs as root or decide who may become root. Writing them is
+    /// how a compromised process would make itself permanent, so the helper never does, whoever asks.
+    static let protectedPrefixes = [
+        "/System/", "/Library/LaunchDaemons/", "/Library/LaunchAgents/", "/Library/PrivilegedHelperTools/",
+        "/Library/StartupItems/", "/Library/Security/", "/private/etc/sudoers", "/private/etc/pam.d/",
+        "/private/etc/periodic/", "/private/var/root/", "/private/var/db/",
+    ]
+
+    /// `path` as written, with /etc → /private/etc, and every symlink on the way followed — also
+    /// a link whose target does not exist yet (the save would create it there).
+    static func isProtected(_ path: String) -> Bool {
+        var candidates = [path, URL(fileURLWithPath: path).resolvingSymlinksInPath().path]
+        var current = path
+        for _ in 0..<16 {
+            guard let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: current) else { break }
+            current = destination.hasPrefix("/") ? destination
+                : URL(fileURLWithPath: current).deletingLastPathComponent().appendingPathComponent(destination).standardizedFileURL.path
+            candidates += [current, URL(fileURLWithPath: current).resolvingSymlinksInPath().path]
+        }
+        return candidates.contains { candidate in
+            for spelled in [candidate, candidate.hasPrefix("/etc/") ? "/private" + candidate : candidate] {
+                if protectedPrefixes.contains(where: { spelled.hasPrefix($0) || spelled + "/" == $0 }) { return true }
+            }
+            return false
         }
     }
 
@@ -31,6 +61,7 @@ enum FileInstaller {
         guard !path.hasSuffix("/") else { throw Failure.invalidPath("it names a folder") }
         guard !path.contains("\0") else { throw Failure.invalidPath("it contains a NUL character") }
         guard size <= maximumSize else { throw Failure.tooLarge(size) }
+        guard !isProtected(path) else { throw Failure.protectedPath(path) }
         var isDirectory: ObjCBool = false
         if FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue {
             throw Failure.invalidPath("it is a folder")
@@ -75,24 +106,91 @@ enum HelperIdentity {
     static let teamID = "96Y4LX7FVB"
     static let appIdentifier = "app.macpad.MacPad"
     /// Bumped when the protocol changes, so the app can tell a stale helper from a current one.
-    static let helperVersion = "1"
+    /// 2 (MAC-55): every install carries an authorization the helper checks itself.
+    static let helperVersion = "2"
 
-    /// The helper accepts connections only from MacPad++ signed with this team's Developer ID.
-    static var clientRequirement: String {
-        "anchor apple generic and identifier \"\(appIdentifier)\" and certificate leaf[subject.OU] = \"\(teamID)\""
+    /// MAC-55: the authorization right each save needs — an administrator, asked every time.
+    /// postinstall writes it into the authorization database; the helper refuses to work without it.
+    static let saveRight = "app.macpad.MacPad.save"
+
+    /// The text of the administrator prompt, naming the file the helper will actually write.
+    static func prompt(forPath path: String) -> String {
+        "MacPad++ wants to save \u{201C}\(path)\u{201D} as administrator."
     }
 
+    /// A Developer ID signature of this team (MAC-55): Apple's Developer ID markers, so a build
+    /// signed with the team's Apple Development certificate does not pass.
+    private static var developerID: String {
+        "anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists "
+            + "and certificate leaf[field.1.2.840.113635.100.6.1.13] exists "
+            + "and certificate leaf[subject.OU] = \"\(teamID)\""
+    }
+
+    /// The helper accepts connections only from MacPad++ signed with this team's Developer ID.
+    static var clientRequirement: String { "\(developerID) and identifier \"\(appIdentifier)\"" }
+
     /// MacPad++ talks only to a helper signed by the same team.
-    static var helperRequirement: String {
-        "anchor apple generic and identifier \"\(machService)\" and certificate leaf[subject.OU] = \"\(teamID)\""
+    static var helperRequirement: String { "\(developerID) and identifier \"\(machService)\"" }
+}
+
+/// How the helper answers an install (MAC-55).
+@objc enum HelperReply: Int {
+    case saved = 0
+    /// The user cancelled the administrator prompt: nothing written, nothing else to try.
+    case cancelled = 1
+    /// Refused whatever the user says (a protected file, a bad request).
+    case refused = 2
+    /// Could not do it (no right installed, I/O error): the app may try the password prompt.
+    case failed = 3
+}
+
+/// Checks that an administrator authorized this one write (MAC-55). The helper's implementation
+/// asks Authorization Services; tests substitute their own.
+protocol RequestAuthorizer {
+    /// Throws `RequestAuthorization.cancelled` when the user cancels, anything else when it fails.
+    func authorize(_ externalForm: Data, path: String) throws
+}
+
+enum RequestAuthorization: Error, Equatable {
+    case cancelled
+    case denied(String)
+}
+
+/// What the helper does with one request: check it, ask for the authorization (only for a request
+/// it would carry out), then write. Shared so the tests run exactly what root runs.
+enum HelperRequest {
+    static func handle(_ data: Data, path: String, authorization: Data, authorizer: RequestAuthorizer,
+                       install: (Data, String) throws -> Void = FileInstaller.install) -> (HelperReply, String?) {
+        do {
+            try FileInstaller.validate(path: path, size: data.count)
+        } catch {
+            return (.refused, error.localizedDescription)
+        }
+        let target = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+        do {
+            try authorizer.authorize(authorization, path: target)
+        } catch RequestAuthorization.cancelled {
+            return (.cancelled, nil)
+        } catch {
+            return (.failed, "Not authorized: \(error)")
+        }
+        do {
+            try install(data, path)
+            return (.saved, nil)
+        } catch {
+            return (.failed, error.localizedDescription)
+        }
     }
 }
 
 /// The helper's XPC interface: one operation.
 @objc(MacPadHelperProtocol)
 protocol MacPadHelperProtocol {
-    /// Installs `data` at `path` as root. Replies nil on success, or an error message.
-    func install(_ data: Data, atPath path: String, withReply reply: @escaping (String?) -> Void)
+    /// Installs `data` at `path` as root, once `authorization` (an AuthorizationExternalForm from
+    /// the app) holds the save right — the helper asks the administrator for it. Replies with the
+    /// outcome and, when it failed, a message.
+    func install(_ data: Data, atPath path: String, authorization: Data,
+                 withReply reply: @escaping (HelperReply, String?) -> Void)
     /// The helper's version, to tell a stale helper from a current one.
     func version(withReply reply: @escaping (String) -> Void)
 }

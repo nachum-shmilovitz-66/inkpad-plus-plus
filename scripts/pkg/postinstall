@@ -3,7 +3,8 @@
 # Installs MacPad++'s privileged helper as a launchd daemon, so administrator saves can use Touch ID
 # without any further approval step: the user already approved this installation.
 # Never fails the installation: without the helper, MacPad++ falls back to the password prompt.
-# Test overrides (never set by Installer): MACPAD_LAUNCHD_DIR, MACPAD_LAUNCHCTL, MACPAD_BIN_DIR.
+# Test overrides (never set by Installer): MACPAD_LAUNCHD_DIR, MACPAD_LAUNCHCTL, MACPAD_BIN_DIR,
+# MACPAD_SECURITY.
 set -u
 
 LABEL="app.macpad.MacPad.helper"
@@ -27,6 +28,36 @@ if [ -x "$TOOL" ]; then
     echo "MacPad++: $BIN/macpad is not MacPad++'s; left as it is" >&2
   fi
 fi
+
+# MAC-55: the authorization right the helper asks for on every save — an administrator, every
+# time (not shared with other rights, never cached). Without it the helper refuses to write.
+SECURITY="${MACPAD_SECURITY:-/usr/bin/security}"
+"$SECURITY" authorizationdb write app.macpad.MacPad.save >/dev/null 2>&1 <<'RIGHT_END' || echo "MacPad++: could not install the save right; administrator saves will use the password prompt" >&2
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>class</key>
+	<string>user</string>
+	<key>group</key>
+	<string>admin</string>
+	<key>authenticate-user</key>
+	<true/>
+	<key>shared</key>
+	<false/>
+	<key>timeout</key>
+	<integer>0</integer>
+	<key>allow-root</key>
+	<false/>
+	<key>session-owner</key>
+	<false/>
+	<key>version</key>
+	<integer>1</integer>
+	<key>comment</key>
+	<string>MacPad++: save one file as administrator.</string>
+</dict>
+</plist>
+RIGHT_END
 
 if [ ! -x "$HELPER" ]; then
   echo "MacPad++: helper not found at $HELPER; administrator saves will use the password prompt" >&2

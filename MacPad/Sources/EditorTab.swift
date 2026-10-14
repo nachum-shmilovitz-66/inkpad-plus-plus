@@ -237,26 +237,34 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         proceed(true)
     }
 
-    /// MAC-24 / MAC-28: Touch ID through the helper the installer set up; otherwise MAC-22's
-    /// password prompt. Either way, one popup.
+    /// MAC-24 / MAC-28 / MAC-55: the helper the installer set up, which asks macOS for an
+    /// administrator (Touch ID or password) naming the file; otherwise MAC-22's password prompt.
+    /// Either way, one popup. System startup and security files are refused on both routes.
     private func adminSave(_ data: Data, to url: URL, completion: @escaping (Bool) -> Void) {
+        guard !FileInstaller.isProtected(url.path) else {
+            presentSaveError(FileInstaller.Failure.protectedPath(url.path))
+            completion(false)
+            return
+        }
         let helper = AdminHelperSupport.helper
         helper.checkAvailable { [weak self] available in
             guard let self else { return }
             switch AdminSaveRoute.decide(helperAvailable: available) {
-            case .touchID:
-                AdminHelperSupport.presence.confirm(reason: AdminHelperSupport.reason(for: url)) { [weak self] confirmed in
+            case .helper:
+                helper.install(data, atPath: url.path) { [weak self] result in
                     guard let self else { return }
-                    guard confirmed else { completion(false); return }  // cancelled Touch ID: stay dirty
-                    helper.install(data, atPath: url.path) { [weak self] error in
-                        guard let self else { return }
-                        if let error {
-                            NSLog("MacPad++: helper could not save \(url.path) (\(error.localizedDescription)); using the password prompt")
-                            self.passwordSave(data, to: url, completion: completion)
-                        } else {
-                            self.didWrite(to: url)
-                            completion(true)
-                        }
+                    switch result {
+                    case .saved:
+                        self.didWrite(to: url)
+                        completion(true)
+                    case .cancelled:
+                        completion(false)  // stay dirty, say nothing
+                    case .refused(let why):
+                        self.presentSaveError(FileInstaller.Failure.io(why))
+                        completion(false)
+                    case .failed(let why):
+                        NSLog("MacPad++: helper could not save \(url.path) (\(why)); using the password prompt")
+                        self.passwordSave(data, to: url, completion: completion)
                     }
                 }
             case .password:
@@ -281,7 +289,11 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         completion(true)
     }
 
+    /// Tests catch save errors here instead of a modal alert.
+    var onSaveError: ((Error) -> Void)?
+
     private func presentSaveError(_ error: Error) {
+        if let onSaveError { onSaveError(error); return }
         if let hostWindow {
             NSApp.presentError(error, modalFor: hostWindow, delegate: nil, didPresent: nil, contextInfo: nil)
         } else {
@@ -321,6 +333,13 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         } else {
             saveAs(completion: completion)
         }
+    }
+
+    /// Writes to `url` without the save panel (scripted saves, tests).
+    func saveAs(to url: URL, completion: ((Bool) -> Void)? = nil) {
+        if isClone, let twin { twin.saveAs(to: url, completion: completion); return }
+        if isMonitoring { completion?(false); return }
+        write(to: url) { completion?($0) }
     }
 
     func saveAs(completion: ((Bool) -> Void)? = nil) {

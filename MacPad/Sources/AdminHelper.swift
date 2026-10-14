@@ -1,35 +1,50 @@
 import AppKit
-import LocalAuthentication
 import Security
 
-// Touch ID for Save as Administrator (MAC-24, MAC-28): MacPad++'s privileged helper, as seen from
-// the app. The .pkg installs the helper as a launchd daemon (scripts/pkg/postinstall) — the user
-// approves that with the installation itself, so there is no further set-up and no question here.
-// When the helper answers, an admin save is one Touch ID popup; when it does not (a copy installed
-// without the .pkg, or the helper switched off in Login Items), it is one password popup (MAC-22).
+// Save as Administrator through MacPad++'s privileged helper (MAC-24, MAC-28, MAC-55), as seen
+// from the app. The .pkg installs the helper as a launchd daemon (scripts/pkg/postinstall). The app
+// sends the bytes with an authorization reference; the helper asks macOS for an administrator
+// (Touch ID or password, in the system's own dialog naming the file) and only then writes. When the
+// helper does not answer (a copy installed without the .pkg, a Debug build) it is MAC-22's password
+// prompt instead. Either way, one popup.
 
 /// Which way an admin save goes.
 enum AdminSaveRoute: Equatable {
-    case touchID
+    case helper
     case password
 
-    static func decide(helperAvailable: Bool) -> AdminSaveRoute { helperAvailable ? .touchID : .password }
+    static func decide(helperAvailable: Bool) -> AdminSaveRoute { helperAvailable ? .helper : .password }
+}
+
+/// What came of a helper save.
+enum AdminHelperResult {
+    case saved
+    /// The administrator prompt was cancelled: stay unsaved, ask nothing more.
+    case cancelled
+    /// The helper refuses this file whoever authorizes it (MAC-55): say why, do not fall back.
+    case refused(String)
+    /// The helper could not do it: the password prompt may.
+    case failed(String)
+
+    init(_ reply: HelperReply, _ message: String?) {
+        switch reply {
+        case .saved: self = .saved
+        case .cancelled: self = .cancelled
+        case .refused: self = .refused(message ?? "refused")
+        case .failed: self = .failed(message ?? "failed")
+        }
+    }
 }
 
 protocol AdminHelperService: AnyObject {
     /// Whether the installed helper answers (and is the version this app speaks). Main queue.
     func checkAvailable(completion: @escaping (Bool) -> Void)
-    func install(_ data: Data, atPath path: String, completion: @escaping (Error?) -> Void)
-}
-
-protocol UserPresenceCheck {
-    /// Touch ID, or the login password when Touch ID is unavailable. Calls back on the main queue.
-    func confirm(reason: String, completion: @escaping (Bool) -> Void)
+    /// Main queue.
+    func install(_ data: Data, atPath path: String, completion: @escaping (AdminHelperResult) -> Void)
 }
 
 enum AdminHelperSupport {
     static var helper: AdminHelperService = XPCAdminHelper()
-    static var presence: UserPresenceCheck = DeviceOwnerPresence()
 
     /// The team that signed this running app, if any (nil for ad-hoc and development builds).
     static var signingTeam: String? {
@@ -43,17 +58,18 @@ enum AdminHelperSupport {
         return dict[kSecCodeInfoTeamIdentifier as String] as? String
     }
 
-    static func reason(for url: URL) -> String {
-        "save \u{201C}\(url.lastPathComponent)\u{201D} as administrator"
-    }
-}
-
-/// LocalAuthentication's device-owner check: Touch ID, falling back to the password.
-struct DeviceOwnerPresence: UserPresenceCheck {
-    func confirm(reason: String, completion: @escaping (Bool) -> Void) {
-        LAContext().evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { ok, _ in
-            DispatchQueue.main.async { completion(ok) }
+    /// A fresh authorization reference for one save, as the bytes the helper gets. No rights are
+    /// asked for here: the helper asks for the save right on it (MAC-55).
+    static func makeAuthorization() -> (reference: AuthorizationRef, external: Data)? {
+        var reference: AuthorizationRef?
+        guard AuthorizationCreate(nil, nil, [], &reference) == errAuthorizationSuccess, let reference else { return nil }
+        var external = AuthorizationExternalForm()
+        guard AuthorizationMakeExternalForm(reference, &external) == errAuthorizationSuccess else {
+            AuthorizationFree(reference, [])
+            return nil
         }
+        let data = withUnsafeBytes(of: external.bytes) { Data($0) }
+        return (reference, data)
     }
 }
 
@@ -76,15 +92,22 @@ final class XPCAdminHelper: AdminHelperService {
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.availabilityTimeout) { finish(false) }
     }
 
-    func install(_ data: Data, atPath path: String, completion: @escaping (Error?) -> Void) {
-        let connection = makeConnection()
-        let finish = Once.callback { (error: Error?) in
-            connection.invalidate()
-            DispatchQueue.main.async { completion(error) }
+    func install(_ data: Data, atPath path: String, completion: @escaping (AdminHelperResult) -> Void) {
+        guard let authorization = AdminHelperSupport.makeAuthorization() else {
+            completion(.failed("Could not create an authorization."))
+            return
         }
-        let proxy = connection.remoteObjectProxyWithErrorHandler { finish($0) } as? MacPadHelperProtocol
-        guard let proxy else { finish(FileInstaller.Failure.io("Could not reach MacPad++'s helper.")); return }
-        proxy.install(data, atPath: path) { message in finish(message.map { FileInstaller.Failure.io($0) }) }
+        let connection = makeConnection()
+        let finish = Once.callback { (result: AdminHelperResult) in
+            connection.invalidate()
+            AuthorizationFree(authorization.reference, [.destroyRights])
+            DispatchQueue.main.async { completion(result) }
+        }
+        let proxy = connection.remoteObjectProxyWithErrorHandler { finish(.failed($0.localizedDescription)) } as? MacPadHelperProtocol
+        guard let proxy else { finish(.failed("Could not reach MacPad++'s helper.")); return }
+        proxy.install(data, atPath: path, authorization: authorization.external) { reply, message in
+            finish(AdminHelperResult(reply, message))
+        }
     }
 
     private func makeConnection() -> NSXPCConnection {

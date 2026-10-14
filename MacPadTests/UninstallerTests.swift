@@ -28,7 +28,7 @@ final class UninstallerTests: XCTestCase {
         try fm.createDirectory(at: bin, withIntermediateDirectories: true)
         try fm.createSymbolicLink(atPath: bin.appendingPathComponent("macpad").path,
                                   withDestinationPath: app.appendingPathComponent("Contents/MacOS/macpad").path)
-        for stub in ["launchctl", "pkgutil"] {
+        for stub in ["launchctl", "pkgutil", "security"] {
             let url = root.appendingPathComponent(stub)
             try Data("#!/bin/sh\necho \"\(stub) $*\" >> '\(log.path)'\nexit 0\n".utf8).write(to: url)
             try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
@@ -44,6 +44,7 @@ final class UninstallerTests: XCTestCase {
         p.arguments = [script.path] + args
         p.environment = ["MACPAD_LAUNCHD_DIR": daemons.path, "MACPAD_LAUNCHCTL": root.appendingPathComponent("launchctl").path,
                          "MACPAD_BIN_DIR": bin.path, "MACPAD_PKGUTIL": root.appendingPathComponent("pkgutil").path,
+                         "MACPAD_SECURITY": root.appendingPathComponent("security").path,
                          "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
         p.standardOutput = Pipe()
         p.standardError = Pipe()
@@ -66,7 +67,8 @@ final class UninstallerTests: XCTestCase {
         XCTAssertFalse(exists(daemons.appendingPathComponent("\(label).plist")))
         XCTAssertTrue(exists(daemons.appendingPathComponent("com.example.other.plist")), "other daemons stay")
         XCTAssertFalse(exists(bin.appendingPathComponent("macpad")))
-        XCTAssertEqual(calls(), ["launchctl bootout system/\(label)", "pkgutil --forget app.macpad.MacPad"])
+        XCTAssertEqual(calls(), ["launchctl bootout system/\(label)", "security authorizationdb remove app.macpad.MacPad.save",
+                                 "pkgutil --forget app.macpad.MacPad"], "the save right (MAC-55) goes too")
     }
 
     func testSomeoneElsesMacpadStays() throws {
