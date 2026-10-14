@@ -37,6 +37,8 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
     /// host to ask about it (it asks only for the visible tab, with the app in front).
     private(set) var pendingExternalChange: FileChange?
     var onExternalChange: ((EditorTab) -> Void)?
+    /// Text was inserted or deleted (incremental search's count goes stale).
+    var onTextModified: (() -> Void)?
     private var diskWatcher: FileWatcher?
     private var diskSnapshot: FileSnapshot?
     /// Deleted on disk and kept in the editor: unsaved until written back.
@@ -57,6 +59,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         stopMonitoring()
         stopDiskWatch()
         onExternalChange = nil
+        onTextModified = nil
         editor.delegate = nil
         onChange = nil
         hostWindow = nil
@@ -500,6 +503,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
             onChange?()
         case SCN_MODIFIED:
             if n.linesAdded != 0 { EditorStyler.updateLineNumberWidth(editor) }
+            if Int(n.modificationType) & Int(SC_MOD_INSERTTEXT | SC_MOD_DELETETEXT) != 0 { onTextModified?() }
         case SCN_MARGINCLICK where Int(n.margin) == Margin.symbol && n.modifiers == 0:
             // A click in the bookmark margin toggles that line's bookmark.
             Marker(editor: editor).toggleBookmark(editor.send(SCI_LINEFROMPOSITION, Int(n.position)))

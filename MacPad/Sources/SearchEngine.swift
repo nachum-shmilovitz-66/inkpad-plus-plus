@@ -36,8 +36,10 @@ struct SearchEngine {
 
     /// processFindNext. `fromSelectionStart` is Notepad++'s FirstIncremental (used by Replace):
     /// the current selection may itself be the match. A match is selected with the caret at its end.
+    /// `nextIncremental` is Notepad++'s NextIncremental (incremental search's Enter / > / <): going
+    /// down it starts one past the selection start, so the current match is passed over.
     func findNext(_ text: String, options: SearchOptions, kind: FindKind = .findNext,
-                  fromSelectionStart: Bool = false) -> Outcome {
+                  fromSelectionStart: Bool = false, nextIncremental: Bool = false) -> Outcome {
         guard !text.isEmpty else { return .notFound }
         let pattern = bytes(options.prepared(text))
         let length = editor.send(SCI_GETLENGTH)
@@ -51,6 +53,7 @@ struct SearchEngine {
         case (false, true): (from, to) = (selStart, length)
         case (true, true): (from, to) = (selEnd, 0)
         }
+        if nextIncremental && !up { from = min(selStart + 1, length) }
 
         var flags = options.searchFlags | kind.flags
         if editor.send(SCI_GETCHARAT, from - 1) == 0x0D && editor.send(SCI_GETCHARAT, from) == 0x0A {

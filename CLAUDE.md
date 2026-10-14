@@ -123,7 +123,15 @@ Login Items step). The app pings it over XPC; Touch ID when it answers, the pass
 Only team-96Y4LX7FVB-signed builds pass the code-signing requirements, so Debug builds always use the
 password path. Known gap, tracked in MAC-25: the user-presence check is in the app, not the helper.
 
-Next: milestone 3 (Find/Replace).
+Milestone 3: **done** (2026-10-14, release 0.1.10) — Notepad++'s Boost regex engine (MAC-29),
+Find/Replace dialog (MAC-30), Mark + token styles + bookmarks (MAC-31), Search results panel with
+Find All / Replace All in opened documents (MAC-32), Find in Files / Replace in Files (MAC-33),
+incremental search and Go To (MAC-34). Mac shortcuts replace Notepad++'s where macOS owns the key:
+⌘F / ⌥⌘F / ⇧⌘F / ⇧⌘M for Find / Replace / Find in Files / Mark, ⌘G / ⇧⌘G for F3 / Shift-F3,
+⌥⌘I incremental search, ⌘L Go To; F2 / F4 / F7 stay as in Notepad++.
+Not ported yet: "Find in these search results…", Line Filter Mode, the regex error detail text.
+
+Next: milestone 4 (Language menu, Style Configurator, themes, Preferences).
 
 ## Environment
 

@@ -54,8 +54,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @IBAction func showReplacePanel(_ sender: Any?) { findReplace.show(.replace) }
     @IBAction func showMarkPanel(_ sender: Any?) { findReplace.show(.mark) }
     @IBAction func showFindInFilesPanel(_ sender: Any?) { findReplace.show(.findInFiles) }
-    @IBAction func findNextMatch(_ sender: Any?) { findReplace.findNext() }
-    @IBAction func findPreviousMatch(_ sender: Any?) { findReplace.findNext(reversed: true) }
+    /// Notepad++'s Go To dialog (MAC-34).
+    private(set) lazy var goTo = GoToLineController { [weak self] in self?.mainWindow.activeTab?.editor }
+
+    @IBAction func showGoTo(_ sender: Any?) { goTo.show() }
+    /// ⌘G / ⇧⌘G (F3 / Shift-F3) step the incremental search while its field has focus.
+    @IBAction func findNextMatch(_ sender: Any?) {
+        mainWindow.incrementalBar.hasFocus ? mainWindow.incrementalBar.next() : findReplace.findNext()
+    }
+    @IBAction func findPreviousMatch(_ sender: Any?) {
+        mainWindow.incrementalBar.hasFocus ? mainWindow.incrementalBar.previous() : findReplace.findNext(reversed: true)
+    }
     @IBAction func selectAndFindNext(_ sender: Any?) { findReplace.selectAndFindNext(reversed: false) }
     @IBAction func selectAndFindPrevious(_ sender: Any?) { findReplace.selectAndFindNext(reversed: true) }
     @IBAction func useSelectionForFind(_ sender: Any?) { findReplace.useSelectionForFind() }

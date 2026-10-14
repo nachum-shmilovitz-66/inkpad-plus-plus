@@ -6,12 +6,15 @@ enum MarkIndicator {
     static let findMark = 31
     /// "Mark Style 1" … "Mark Style 5" (SCE_UNIVERSAL_FOUND_STYLE_EXT1…5).
     static let styles = [25, 24, 23, 22, 21]
+    /// Incremental search's "Highlight all" (SCE_UNIVERSAL_FOUND_STYLE_INC).
+    static let incremental = 28
     /// MARK_BOOKMARK.
     static let bookmark = 20
 
     /// The stylers.model.xml entry for each indicator, and Notepad++'s fallback colour (RRGGBB).
     static let themeEntries: [(indicator: Int, name: String, fallback: String)] = [
         (findMark, "Find Mark Style", "FF0000"),
+        (incremental, "Incremental highlight all", "0080FF"),
         (25, "Mark Style 1", "00FFFF"),
         (24, "Mark Style 2", "FF8000"),
         (23, "Mark Style 3", "FFFF00"),

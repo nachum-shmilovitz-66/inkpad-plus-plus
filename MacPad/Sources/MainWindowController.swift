@@ -15,6 +15,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// The editor above, Notepad++'s "Search results" panel docked below (MAC-32).
     private let splitView = NSSplitView()
     let searchResults = SearchResultsPanel()
+    /// Notepad++'s incremental search bar, above the status bar (MAC-34).
+    let incrementalBar = IncrementalSearchBar()
 
     var activeTab: EditorTab? { tabs.active }
     var hasDirtyTabs: Bool { tabs.items.contains(where: \.isModified) }
@@ -41,19 +43,29 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         splitView.setHoldingPriority(.defaultLow - 1, forSubviewAt: 0)
         splitView.setHoldingPriority(.defaultLow + 1, forSubviewAt: 1)
         searchResults.isHidden = true
+        incrementalBar.isHidden = true
+        let column = NSStackView(views: [splitView, incrementalBar])  // a hidden bar takes no room
+        column.orientation = .vertical
+        column.spacing = 0
+        column.distribution = .fill
+        column.translatesAutoresizingMaskIntoConstraints = false
+        splitView.setContentHuggingPriority(.defaultLow, for: .vertical)
+        incrementalBar.setContentHuggingPriority(.required, for: .vertical)
 
         let content = NSView()
         content.addSubview(tabBar)
-        content.addSubview(splitView)
+        content.addSubview(column)
         content.addSubview(statusBar)
         NSLayoutConstraint.activate([
             tabBar.topAnchor.constraint(equalTo: content.topAnchor),
             tabBar.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             tabBar.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            splitView.topAnchor.constraint(equalTo: tabBar.bottomAnchor),
-            splitView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            splitView.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            splitView.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
+            column.topAnchor.constraint(equalTo: tabBar.bottomAnchor),
+            column.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            column.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            column.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
+            splitView.widthAnchor.constraint(equalTo: column.widthAnchor),
+            incrementalBar.widthAnchor.constraint(equalTo: column.widthAnchor),
             statusBar.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             statusBar.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             statusBar.bottomAnchor.constraint(equalTo: content.bottomAnchor),
@@ -61,6 +73,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         window.contentView = content
         window.delegate = self
 
+        incrementalBar.editorProvider = { [weak self] in self?.activeTab?.editor }
         searchResults.onOpen = { [weak self] hit, index in self?.openSearchHit(hit, rangeIndex: index) }
         searchResults.onOpenPath = { [weak self] path in self?.openSearchPath(path) }
         searchResults.onClose = { [weak self] in self?.setSearchResultsVisible(false) }
@@ -173,6 +186,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         tab.hostWindow = window
         tab.onChange = { [weak self] in self?.refresh() }
         tab.onExternalChange = { [weak self] _ in self?.presentExternalChangeIfNeeded() }
+        tab.onTextModified = { [weak self, weak tab] in
+            if let self, tab === self.activeTab { self.incrementalBar.resetCount() }
+        }
         tab.editor.isHidden = true
         editorContainer.addSubview(tab.editor)
         NSLayoutConstraint.activate([
@@ -190,6 +206,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     func selectTab(at index: Int) {
         tabs.select(index)
+        incrementalBar.resetCount()
         refresh()
         persistSession()
     }
@@ -335,6 +352,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     @IBAction func zoomInText(_ sender: Any?) { activeTab?.editor.send(SCI_ZOOMIN) }
     @IBAction func zoomOutText(_ sender: Any?) { activeTab?.editor.send(SCI_ZOOMOUT) }
     @IBAction func restoreTextZoom(_ sender: Any?) { activeTab?.editor.send(SCI_SETZOOM, 0) }
+
+    // MARK: - Incremental search (MAC-34)
+
+    @IBAction func showIncrementalSearch(_ sender: Any?) {
+        if incrementalBar.hasFocus { incrementalBar.next() } else { incrementalBar.open() }
+    }
 
     // MARK: - Search results (MAC-32)
 

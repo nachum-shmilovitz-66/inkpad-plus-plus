@@ -79,7 +79,7 @@ enum MainMenu {
     }
 
     /// Notepad++'s Search menu with Mac shortcuts: ⌘F Find, ⌥⌘F Replace (Ctrl+H is Hide on a Mac),
-    /// ⇧⌘M Mark (⌘M is Minimize),
+    /// ⇧⌘M Mark (⌘M is Minimize), ⌥⌘I Incremental Search, ⌘L Go To (⌘G is Find Next),
     /// ⌘G / ⇧⌘G for F3 / Shift+F3, ⌥⌘G / ⌥⇧⌘G for Ctrl+F3 / Ctrl+Shift+F3, ⌘E Use Selection for Find.
     private static func searchMenu() -> NSMenu {
         let menu = NSMenu(title: "Search")
@@ -89,6 +89,8 @@ enum MainMenu {
         menu.addItem(item("Select and Find Next", #selector(AppDelegate.selectAndFindNext(_:)), "g", [.command, .option]))
         menu.addItem(item("Select and Find Previous", #selector(AppDelegate.selectAndFindPrevious(_:)), "g", [.command, .option, .shift]))
         menu.addItem(item("Use Selection for Find", #selector(AppDelegate.useSelectionForFind(_:)), "e"))
+        menu.addItem(item("Incremental Search", #selector(MainWindowController.showIncrementalSearch(_:)), "i", [.command, .option]))
+        menu.addItem(item("Go To…", #selector(AppDelegate.showGoTo(_:)), "l"))
         menu.addItem(.separator())
         menu.addItem(item("Replace…", #selector(AppDelegate.showReplacePanel(_:)), "f", [.command, .option]))
         menu.addItem(item("Find in Files…", #selector(AppDelegate.showFindInFilesPanel(_:)), "f", [.command, .shift]))
