@@ -4,7 +4,7 @@ A native macOS port of [Notepad++](https://notepad-plus-plus.org/) v8.9.8.1: Swi
 the same Scintilla/Lexilla editing engine Notepad++ uses, reading Notepad++'s own language, styler
 and theme files unchanged. Not affiliated with the Notepad++ project.
 
-Current release: **0.1.13** (milestones 1–6 of 7 done).
+Current release: **0.1.14** (milestones 1–7 done; notarization pending).
 See `CLAUDE.md` for the roadmap and known gaps.
 
 ## Features
@@ -81,8 +81,23 @@ See `CLAUDE.md` for the roadmap and known gaps.
   editor), each view with its own tabs, synchronized vertical / horizontal scrolling; both views
   kept in the session.
 
+### Installing and the Mac side
+- Signed `.pkg` installer (Developer ID); MacPad++ appears in Finder's Open With for every
+  Notepad++ language's extensions (244 of them), never taking a file type over by itself.
+- Settings › File Association: Notepad++'s categories — make MacPad++ the default app for chosen
+  extensions, and give them back.
+- `macpad` command-line tool (installed in `/usr/local/bin`) with Notepad++'s options:
+  `macpad -n42 -c7 -lpython -ro file.py`, `-p<pos>`, `-monitor`, `-r`, `-openFoldersAsWorkspace`,
+  `-nosession`; `macpad --help` lists them.
+- Save as Administrator: the system's administrator prompt (Touch ID or password) names the file;
+  system startup and security files are refused.
+- MacPad++ › Uninstall MacPad++… removes the app, its helper, the `macpad` link and the receipt
+  (optionally your settings). From Terminal:
+  `sudo sh "/Applications/MacPad++.app/Contents/Resources/uninstall.sh"`.
+- Security review (MAC-25, 2026-10-14): `docs/security/2026-10-14-MAC-25-security-review.md`.
+
 ### Coming next
-- Packaging: file-type associations and a signed release (milestone 7).
+- Notarization of the installer (MAC-54).
 - Not ported yet: User Defined Languages, "Find in these search results…", printing, backups and
   auto-completion settings. Notepad++ plugins (Windows DLLs) cannot run on macOS.
 

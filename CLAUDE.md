@@ -167,7 +167,15 @@ pointer — the original owns saving and file watching, `adoptDocumentState` cop
 language to the twin; the session keeps `subDocuments`). Not ported: Project panels, Clipboard
 History, Character Panel, docking panels by drag, Move to New Instance.
 
-Next: MAC-25 (security review), then milestone 7 (Packaging).
+Milestone 7: **done except notarization (MAC-54)** (2026-10-15, release 0.1.14) — document types for
+every Notepad++ language (MAC-50, generated), Settings › File Association (MAC-51), the `macpad`
+command-line tool with Notepad++'s options (MAC-52, options ride on the Open Documents Apple event),
+uninstaller (MAC-53). Notarization waits for the user's `notarytool store-credentials MacPad` login.
+
+MAC-25 security review: **done** (2026-10-15) — report in `docs/security/`; fixes MAC-55…MAC-65
+(helper authorizes each write itself, helper outside the bundle, descriptor-based root writes,
+SafeXML, symlink-safe saves and Find in Files, vendor pinned + hardened, patched Raku/Perl lexers
+in `scripts/deps/lexer-patches/`). Re-run the fuzzing before moving `scripts/deps/vendor.lock`.
 
 ## Environment
 
