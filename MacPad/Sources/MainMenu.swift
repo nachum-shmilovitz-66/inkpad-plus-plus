@@ -8,6 +8,7 @@ enum MainMenu {
         main.addItem(submenu(appMenu()))
         main.addItem(submenu(fileMenu()))
         main.addItem(submenu(editMenu()))
+        main.addItem(submenu(searchMenu()))
         main.addItem(submenu(viewMenu()))
         let window = windowMenu()
         main.addItem(submenu(window))
@@ -74,6 +75,21 @@ enum MainMenu {
         menu.addItem(item("Paste", #selector(NSText.paste(_:)), "v"))
         menu.addItem(item("Delete", Selector(("clear:"))))
         menu.addItem(item("Select All", #selector(NSText.selectAll(_:)), "a"))
+        return menu
+    }
+
+    /// Notepad++'s Search menu with Mac shortcuts: ⌘F Find, ⌥⌘F Replace (Ctrl+H is Hide on a Mac),
+    /// ⌘G / ⇧⌘G for F3 / Shift+F3, ⌥⌘G / ⌥⇧⌘G for Ctrl+F3 / Ctrl+Shift+F3, ⌘E Use Selection for Find.
+    private static func searchMenu() -> NSMenu {
+        let menu = NSMenu(title: "Search")
+        menu.addItem(item("Find…", #selector(AppDelegate.showFindPanel(_:)), "f"))
+        menu.addItem(item("Find Next", #selector(AppDelegate.findNextMatch(_:)), "g"))
+        menu.addItem(item("Find Previous", #selector(AppDelegate.findPreviousMatch(_:)), "g", [.command, .shift]))
+        menu.addItem(item("Select and Find Next", #selector(AppDelegate.selectAndFindNext(_:)), "g", [.command, .option]))
+        menu.addItem(item("Select and Find Previous", #selector(AppDelegate.selectAndFindPrevious(_:)), "g", [.command, .option, .shift]))
+        menu.addItem(item("Use Selection for Find", #selector(AppDelegate.useSelectionForFind(_:)), "e"))
+        menu.addItem(.separator())
+        menu.addItem(item("Replace…", #selector(AppDelegate.showReplacePanel(_:)), "f", [.command, .option]))
         return menu
     }
 

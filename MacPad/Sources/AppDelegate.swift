@@ -5,6 +5,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Notepad++ is a single-window editor: every file is a tab in this window.
     private(set) lazy var mainWindow = MainWindowController()
+    /// Notepad++'s Find / Replace dialog: one for the app, acting on the visible tab.
+    private(set) lazy var findReplace = FindReplaceController { [weak self] in self?.mainWindow.activeTab?.editor }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = MainMenu.build()
@@ -38,6 +40,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         mainWindow.confirmDiscardAll { sender.reply(toApplicationShouldTerminate: $0) }
         return .terminateLater
     }
+
+    // MARK: - Search menu
+
+    @IBAction func showFindPanel(_ sender: Any?) { findReplace.show(.find) }
+    @IBAction func showReplacePanel(_ sender: Any?) { findReplace.show(.replace) }
+    @IBAction func findNextMatch(_ sender: Any?) { findReplace.findNext() }
+    @IBAction func findPreviousMatch(_ sender: Any?) { findReplace.findNext(reversed: true) }
+    @IBAction func selectAndFindNext(_ sender: Any?) { findReplace.selectAndFindNext(reversed: false) }
+    @IBAction func selectAndFindPrevious(_ sender: Any?) { findReplace.selectAndFindNext(reversed: true) }
+    @IBAction func useSelectionForFind(_ sender: Any?) { findReplace.useSelectionForFind() }
 
     // MARK: - File menu
 
