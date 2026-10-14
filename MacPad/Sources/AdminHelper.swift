@@ -49,7 +49,19 @@ enum AdminSaveRoute: Equatable {
     }
 }
 
-/// The user's answer to "Use Touch ID for administrator saves?".
+/// The one-time question that lets MacPad++ use the Mac's existing Touch ID for admin saves.
+/// It asks for permission (the helper switch in Login Items) — it does not set up Touch ID itself,
+/// which the first wording wrongly suggested (MAC-27, user feedback 2026-10-14).
+enum HelperSetupPrompt {
+    static let title = "Allow Touch ID for administrator saves?"
+    static let message = "Your Mac\u{2019}s Touch ID can approve saves like this one instead of your password. "
+        + "To allow it, switch MacPad++ on once in System Settings \u{203A} General \u{203A} Login Items "
+        + "(\u{201C}Allow in the Background\u{201D}). This save will still ask for your password."
+    /// In order: allow (.setUp), not now, don't ask again.
+    static let buttons = ["Allow in Login Items\u{2026}", "Not Now", "Don\u{2019}t Ask Again"]
+}
+
+/// The user's answer to "Allow Touch ID for administrator saves?".
 enum HelperSetupChoice: Equatable {
     case setUp, notNow, dontAskAgain
 }
@@ -86,6 +98,24 @@ enum AdminHelperSupport {
         guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
               let dict = info as? [String: Any] else { return nil }
         return dict[kSecCodeInfoTeamIdentifier as String] as? String
+    }
+
+    /// Time for a closing sheet's animation before anything modal starts (MAC-27).
+    static var sheetSettleDelay: TimeInterval = 0.4
+    /// How often, and how long, to look for the user's switch in Login Items.
+    static var approvalPollInterval: TimeInterval = 1.0
+    static var approvalTimeout: TimeInterval = 180
+
+    /// Calls back once the helper is enabled (true), or after the timeout (false). Polls on the
+    /// main run loop — nothing is shown and nothing blocks while the user is in System Settings.
+    static func waitForApproval(of helper: AdminHelperService, completion: @escaping (Bool) -> Void) {
+        let deadline = Date().addingTimeInterval(approvalTimeout)
+        func check() {
+            if helper.status == .enabled { completion(true); return }
+            if Date() >= deadline { NSLog("MacPad++: helper not approved in time"); completion(false); return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + approvalPollInterval, execute: check)
+        }
+        check()
     }
 
     static func reason(for url: URL) -> String {

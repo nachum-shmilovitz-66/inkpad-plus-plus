@@ -159,7 +159,15 @@ private final class FakeHelper: AdminHelperService {
         self.unlockedDir = unlockedDir
     }
 
-    func register() throws { registered = true }
+    /// Simulates the user switching MacPad++ on in Login Items after `delay` (nil: never).
+    var approveAfter: TimeInterval?
+
+    func register() throws {
+        registered = true
+        if let approveAfter {
+            DispatchQueue.main.asyncAfter(deadline: .now() + approveAfter) { [weak self] in self?.status = .enabled }
+        }
+    }
     func openApprovalSettings() { openedSettings = true }
 
     /// Plays root: briefly opens the read-only folder, then runs the real install routine.
@@ -282,22 +290,86 @@ final class EditorTabTouchIDSaveTests: XCTestCase {
         XCTAssertEqual(try onDisk(), "127.0.0.1 localhost\n# new")
     }
 
-    func testUnregisteredHelperIsOfferedAndThisSaveUsesThePassword() throws {
+    private func waitFor(_ condition: () -> Bool, seconds: TimeInterval = 5) {
+        let deadline = Date().addingTimeInterval(seconds)
+        while !condition(), Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+    }
+
+    func testAllowingWaitsForLoginItemsThenSavesWithTouchIDOnly() throws {
+        AdminHelperSupport.approvalPollInterval = 0.02
+        defer { AdminHelperSupport.approvalPollInterval = 1.0 }
         let helper = FakeHelper(status: .notRegistered, unlockedDir: dir.path)
+        helper.approveAfter = 0.1  // the user flips the switch in System Settings
         let runner = CountingRunner(unlockedDir: dir.path)
+        var touchIDAsked = 0
         AdminHelperSupport.helper = helper
+        AdminHelperSupport.presence = FakePresence(answer: true, asked: { _ in touchIDAsked += 1 })
         PrivilegedSave.runner = runner
         let tab = try editedTab()
         var offered = 0
         tab.helperSetupChoice = { answer in offered += 1; answer(.setUp) }
         var saved: Bool?
         tab.save { saved = $0 }
+        XCTAssertNil(saved, "waiting for approval, no dialog")
+        waitFor { saved != nil }
 
         XCTAssertEqual(offered, 1)
         XCTAssertTrue(helper.registered)
         XCTAssertTrue(helper.openedSettings, "System Settings › Login Items opened for approval")
-        XCTAssertEqual(runner.runs, 1)
         XCTAssertEqual(saved, true)
+        XCTAssertEqual(touchIDAsked, 1, "one popup: Touch ID")
+        XCTAssertEqual(runner.runs, 0, "no password prompt")
+        XCTAssertEqual(helper.installs, 1)
+        XCTAssertEqual(try onDisk(), "127.0.0.1 localhost\n# new")
+    }
+
+    func testEditsMadeWhileWaitingAreWhatGetsSaved() throws {
+        AdminHelperSupport.approvalPollInterval = 0.02
+        defer { AdminHelperSupport.approvalPollInterval = 1.0 }
+        let helper = FakeHelper(status: .notRegistered, unlockedDir: dir.path)
+        helper.approveAfter = 0.2
+        AdminHelperSupport.helper = helper
+        AdminHelperSupport.presence = FakePresence(answer: true)
+        let tab = try editedTab()
+        tab.helperSetupChoice = { answer in answer(.setUp) }
+        var saved: Bool?
+        tab.save { saved = $0 }
+        tab.editor.send(SCI_APPENDTEXT, 6, string: " later")
+        waitFor { saved != nil }
+        XCTAssertEqual(try onDisk(), "127.0.0.1 localhost\n# new later")
+    }
+
+    func testNotApprovedInTimeLeavesTheTabUnsavedWithoutAPasswordPopup() throws {
+        AdminHelperSupport.approvalPollInterval = 0.02
+        AdminHelperSupport.approvalTimeout = 0.2
+        defer { AdminHelperSupport.approvalPollInterval = 1.0; AdminHelperSupport.approvalTimeout = 180 }
+        let helper = FakeHelper(status: .notRegistered, unlockedDir: dir.path)  // never approved
+        let runner = CountingRunner(unlockedDir: dir.path)
+        AdminHelperSupport.helper = helper
+        PrivilegedSave.runner = runner
+        let tab = try editedTab()
+        tab.helperSetupChoice = { answer in answer(.setUp) }
+        var saved: Bool?
+        tab.save { saved = $0 }
+        waitFor { saved != nil }
+        XCTAssertEqual(saved, false)
+        XCTAssertEqual(runner.runs, 0)
+        XCTAssertTrue(tab.isModified)
+        XCTAssertEqual(try onDisk(), "127.0.0.1 localhost\n")
+    }
+
+    func testNotNowUsesOnePasswordPrompt() throws {
+        let helper = FakeHelper(status: .notRegistered, unlockedDir: dir.path)
+        let runner = CountingRunner(unlockedDir: dir.path)
+        AdminHelperSupport.helper = helper
+        PrivilegedSave.runner = runner
+        let tab = try editedTab()
+        tab.helperSetupChoice = { answer in answer(.notNow) }
+        var saved: Bool?
+        tab.save { saved = $0 }
+        XCTAssertEqual(saved, true)
+        XCTAssertEqual(runner.runs, 1)
+        XCTAssertFalse(helper.registered)
     }
 
     func testDontAskAgainIsRemembered() throws {
@@ -379,5 +451,18 @@ final class AdminSaveOnePopupTests: XCTestCase {
         XCTAssertEqual(saved, true)
         XCTAssertEqual(runner.runs, 1)
         XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "a\nb\n")
+    }
+}
+
+/// MAC-27: the one-time question asks for permission to use the existing Touch ID; it must not
+/// read as if Touch ID itself had to be set up.
+final class HelperSetupPromptTests: XCTestCase {
+    func testWordingAsksForPermissionNotForTouchIDSetUp() {
+        XCTAssertEqual(HelperSetupPrompt.title, "Allow Touch ID for administrator saves?")
+        let all = ([HelperSetupPrompt.title, HelperSetupPrompt.message] + HelperSetupPrompt.buttons).joined(separator: " ")
+        XCTAssertFalse(all.contains("Set Up Touch ID"))
+        XCTAssertTrue(HelperSetupPrompt.message.contains("Login Items"))
+        XCTAssertTrue(HelperSetupPrompt.message.contains("This save will still ask for your password"))
+        XCTAssertEqual(HelperSetupPrompt.buttons.count, 3, "matches .setUp / .notNow / .dontAskAgain")
     }
 }

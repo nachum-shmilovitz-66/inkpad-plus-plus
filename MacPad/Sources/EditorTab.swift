@@ -153,6 +153,16 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
                         NSLog("MacPad++: helper registration failed: \(error.localizedDescription)")
                     }
                     helper.openApprovalSettings()
+                    // No password popup for this save: wait (without any dialog) for the switch in
+                    // Login Items, then save what is in the editor at that moment — through the
+                    // Touch ID route. If it is not switched on in time, the tab simply stays
+                    // unsaved (MAC-27: one popup per save).
+                    AdminHelperSupport.waitForApproval(of: helper) { [weak self] approved in
+                        guard let self else { return }
+                        guard approved else { completion(false); return }
+                        self.write(to: url, completion: completion)
+                    }
+                    return
                 case .dontAskAgain:
                     AdminHelperSupport.setupDeclined = true
                 case .notNow:
@@ -168,13 +178,10 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
     private func askHelperSetup(_ answer: @escaping (HelperSetupChoice) -> Void) {
         if let helperSetupChoice { helperSetupChoice(answer); return }
         let alert = NSAlert()
-        alert.messageText = "Use Touch ID for administrator saves?"
-        alert.informativeText = "MacPad++ can install a small helper so saves like this one ask for Touch ID "
-            + "instead of your password. You switch it on once in System Settings \u{203A} General \u{203A} "
-            + "Login Items. This save will ask for your password."
-        alert.addButton(withTitle: "Set Up Touch ID\u{2026}")
-        alert.addButton(withTitle: "Not Now")
-        alert.addButton(withTitle: "Don\u{2019}t Ask Again")
+        let texts = HelperSetupPrompt.self
+        alert.messageText = texts.title
+        alert.informativeText = texts.message
+        texts.buttons.forEach { alert.addButton(withTitle: $0) }
         let handle: (NSApplication.ModalResponse) -> Void = { response in
             let choice: HelperSetupChoice
             switch response {
@@ -182,10 +189,10 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
             case .alertThirdButtonReturn: choice = .dontAskAgain
             default: choice = .notNow
             }
-            // The password prompt that follows blocks the app; let this sheet leave the screen
-            // first, so only one dialog is ever visible (MAC-27).
+            // The password prompt that may follow blocks the app; give this sheet time to leave
+            // the screen first, so only one dialog is ever visible (MAC-27).
             alert.window.orderOut(nil)
-            DispatchQueue.main.async { answer(choice) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + AdminHelperSupport.sheetSettleDelay) { answer(choice) }
         }
         if let hostWindow { alert.beginSheetModal(for: hostWindow, completionHandler: handle) } else { handle(alert.runModal()) }
     }
