@@ -79,6 +79,66 @@ enum MainMenu {
         menu.addItem(item("Paste", #selector(NSText.paste(_:)), "v"))
         menu.addItem(item("Delete", Selector(("clear:"))))
         menu.addItem(item("Select All", #selector(NSText.selectAll(_:)), "a"))
+        menu.addItem(.separator())
+        menu.addItem(submenu(lineOperationsMenu()))
+        menu.addItem(submenu(blankOperationsMenu()))
+        return menu
+    }
+
+    /// Edit › Line Operations (MAC-39). Notepad++'s Ctrl+J / Ctrl+I / Ctrl+Shift+↑↓ / Ctrl+Alt+Enter
+    /// are ⌘J / ⌘I / ⌥⌘↑↓ / ⌥⌘↩ here; ⌘D duplicates the selection, as Ctrl+D does.
+    private static func lineOperationsMenu() -> NSMenu {
+        let menu = NSMenu(title: "Line Operations")
+        let up = String(Character(Unicode.Scalar(UInt32(NSUpArrowFunctionKey))!))
+        let down = String(Character(Unicode.Scalar(UInt32(NSDownArrowFunctionKey))!))
+        func op(_ title: String, _ tag: Int, _ key: String = "", _ mods: NSEvent.ModifierFlags = .command) -> NSMenuItem {
+            let entry = item(title, #selector(MainWindowController.lineOperation(_:)), key, mods)
+            entry.tag = tag
+            return entry
+        }
+        menu.addItem(op("Duplicate Current Line", 1))
+        menu.addItem(op("Remove Duplicate Lines", 2))
+        menu.addItem(op("Remove Consecutive Duplicate Lines", 3))
+        menu.addItem(op("Split Lines", 4, "i"))
+        menu.addItem(op("Join Lines", 5, "j"))
+        menu.addItem(op("Move Up Current Line", 6, up, [.command, .option]))
+        menu.addItem(op("Move Down Current Line", 7, down, [.command, .option]))
+        menu.addItem(op("Remove Empty Lines", 8))
+        menu.addItem(op("Remove Empty Lines (Containing Blank characters)", 9))
+        menu.addItem(op("Insert Blank Line Above Current", 10, "\r", [.command, .option]))
+        menu.addItem(op("Insert Blank Line Below Current", 11, "\r", [.command, .option, .shift]))
+        menu.addItem(.separator())
+        menu.addItem(op("Reverse Line Order", 20))
+        menu.addItem(op("Randomize Line Order", 21))
+        menu.addItem(.separator())
+        let sorts: [(String, Int)] = [
+            ("Sort Lines Lexicographically Ascending", 30), ("Sort Lines Lex. Ascending Ignoring Case", 31),
+            ("Sort Lines In Locale Order Ascending", 32), ("Sort Lines As Integers Ascending", 33),
+            ("Sort Lines As Decimals (Comma) Ascending", 34), ("Sort Lines As Decimals (Dot) Ascending", 35),
+            ("Sort Lines By Length Ascending", 36),
+        ]
+        for (title, tag) in sorts { menu.addItem(op(title, tag)) }
+        menu.addItem(.separator())
+        for (title, tag) in sorts {
+            let descending = title.replacingOccurrences(of: "Ascending", with: "Descending")
+            menu.addItem(op(descending, tag + 10))
+        }
+        return menu
+    }
+
+    /// Edit › Blank Operations (MAC-39).
+    private static func blankOperationsMenu() -> NSMenu {
+        let menu = NSMenu(title: "Blank Operations")
+        let entries: [(String, Int)] = [
+            ("Trim Trailing Space", 1), ("Trim Leading Space", 2), ("Trim Leading and Trailing Space", 3),
+            ("EOL to Space", 4), ("Trim both and EOL to Space", 5), ("TAB to Space", 6),
+            ("Space to TAB (All)", 7), ("Space to TAB (Leading)", 8),
+        ]
+        for (title, tag) in entries {
+            let entry = item(title, #selector(MainWindowController.blankOperation(_:)))
+            entry.tag = tag
+            menu.addItem(entry)
+        }
         return menu
     }
 

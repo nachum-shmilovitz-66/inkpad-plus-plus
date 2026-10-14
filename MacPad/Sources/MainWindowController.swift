@@ -365,6 +365,59 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     @IBAction func zoomOutText(_ sender: Any?) { activeTab?.editor.send(SCI_ZOOMOUT) }
     @IBAction func restoreTextZoom(_ sender: Any?) { activeTab?.editor.send(SCI_SETZOOM, 0) }
 
+    // MARK: - Edit › Line / Blank Operations (MAC-39)
+
+    @IBAction func lineOperation(_ sender: Any?) {
+        guard let editor = activeTab?.editor, let tag = (sender as? NSMenuItem)?.tag else { return }
+        let ops = LineOperations(editor: editor)
+        switch tag {
+        case 1: ops.duplicateLine()
+        case 2: ops.removeDuplicateLines()
+        case 3: ops.removeConsecutiveDuplicateLines()
+        case 4: ops.splitLines()
+        case 5: ops.joinLines()
+        case 6: ops.moveLines(up: true)
+        case 7: ops.moveLines(up: false)
+        case 8: ops.removeEmptyLines(includingBlank: false)
+        case 9: ops.removeEmptyLines(includingBlank: true)
+        case 10: ops.insertBlankLine(above: true)
+        case 11: ops.insertBlankLine(above: false)
+        case 20: sort(ops, .reverse)
+        case 21: sort(ops, .randomize)
+        case 30...46:
+            let kinds: [LineOperations.SortKind] = [.lexicographic, .ignoringCase, .locale, .integers, .decimalsComma, .decimalsDot, .length]
+            sort(ops, kinds[(tag - 30) % 10], descending: tag >= 40)
+        default: break
+        }
+    }
+
+    private func sort(_ ops: LineOperations, _ kind: LineOperations.SortKind, descending: Bool = false) {
+        do {
+            try ops.sortLines(kind, descending: descending)
+        } catch let error as LineOperations.SortError {
+            let alert = NSAlert()
+            alert.messageText = "Sort Error"
+            alert.informativeText = error.message
+            if let window { alert.beginSheetModal(for: window) } else { alert.runModal() }
+        } catch {}
+    }
+
+    @IBAction func blankOperation(_ sender: Any?) {
+        guard let editor = activeTab?.editor, let tag = (sender as? NSMenuItem)?.tag else { return }
+        let ops = LineOperations(editor: editor)
+        switch tag {
+        case 1: ops.trim(.trailing)
+        case 2: ops.trim(.leading)
+        case 3: ops.trim(.both)
+        case 4: ops.eolToSpace()
+        case 5: ops.trimAndEolToSpace()
+        case 6: ops.convertTabs(.tabToSpace)
+        case 7: ops.convertTabs(.spaceToTabAll)
+        case 8: ops.convertTabs(.spaceToTabLeading)
+        default: break
+        }
+    }
+
     // MARK: - Themes (MAC-36)
 
     /// Every editor and the Search results panel take the selected theme.
