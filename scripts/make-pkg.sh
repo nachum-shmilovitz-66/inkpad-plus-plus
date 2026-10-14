@@ -48,7 +48,9 @@ if [[ $IDENTITY == - ]]; then
 else
   SIGN=(codesign --force --options runtime --timestamp --sign "$IDENTITY")
 fi
-# Inside-out: the embedded framework first, then the app.
+# Inside-out: the privileged helper and the embedded framework first, then the app. The helper's
+# identifier is what the app's code-signing requirement for it names (MAC-24).
+$SIGN --identifier app.macpad.MacPad.helper "$APP/Contents/MacOS/MacPadHelper"
 $SIGN "$APP/Contents/Frameworks/Scintilla.framework"
 $SIGN "$APP"
 codesign --verify --deep --strict "$APP"

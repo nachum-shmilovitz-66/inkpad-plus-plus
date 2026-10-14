@@ -110,23 +110,12 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         let proceed: (Bool) -> Void = { [weak self] yes in
             guard let self else { return }
             guard yes else { completion(false); return }
-            do {
-                try PrivilegedSave.save(data, to: url)
-            } catch PrivilegedSaveError.cancelled {
-                completion(false)  // the user dismissed the password prompt: stay dirty, say nothing
-                return
-            } catch {
-                self.presentSaveError(error)
-                completion(false)
-                return
-            }
-            self.didWrite(to: url)
-            completion(true)
+            self.adminSave(data, to: url, completion: completion)
         }
         if let adminSaveConfirmation { adminSaveConfirmation(url, proceed); return }
         let alert = NSAlert()
         alert.messageText = "You don\u{2019}t have permission to save \u{201C}\(url.lastPathComponent)\u{201D}."
-        alert.informativeText = "\(url.path)\n\nMacPad++ can save it with administrator rights. macOS will ask for your password or Touch ID."
+        alert.informativeText = "\(url.path)\n\nMacPad++ can save it with administrator rights."
         alert.addButton(withTitle: "Save as Administrator\u{2026}")
         alert.addButton(withTitle: "Cancel")
         if let hostWindow {
@@ -134,6 +123,88 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         } else {
             proceed(alert.runModal() == .alertFirstButtonReturn)
         }
+    }
+
+    /// Answers "Use Touch ID for administrator saves?"; nil means the standard alert (tests set it).
+    var helperSetupChoice: ((@escaping (HelperSetupChoice) -> Void) -> Void)?
+
+    /// MAC-24: Touch ID through the helper when it is approved; otherwise offer to set it up and
+    /// use MAC-22's password prompt.
+    private func adminSave(_ data: Data, to url: URL, completion: @escaping (Bool) -> Void) {
+        let helper = AdminHelperSupport.helper
+        switch AdminSaveRoute.decide(status: helper.status, setupDeclined: AdminHelperSupport.setupDeclined) {
+        case .touchID:
+            AdminHelperSupport.presence.confirm(reason: AdminHelperSupport.reason(for: url)) { [weak self] confirmed in
+                guard let self else { return }
+                guard confirmed else { completion(false); return }  // cancelled Touch ID: stay dirty
+                helper.install(data, atPath: url.path) { [weak self] error in
+                    guard let self else { return }
+                    if let error {
+                        NSLog("MacPad++: helper could not save \(url.path) (\(error.localizedDescription)); using the password prompt")
+                        self.passwordSave(data, to: url, completion: completion)
+                    } else {
+                        self.didWrite(to: url)
+                        completion(true)
+                    }
+                }
+            }
+        case .offerSetup:
+            askHelperSetup { [weak self] choice in
+                guard let self else { return }
+                switch choice {
+                case .setUp:
+                    do {
+                        try helper.register()
+                    } catch {
+                        NSLog("MacPad++: helper registration failed: \(error.localizedDescription)")
+                    }
+                    helper.openApprovalSettings()
+                case .dontAskAgain:
+                    AdminHelperSupport.setupDeclined = true
+                case .notNow:
+                    break
+                }
+                self.passwordSave(data, to: url, completion: completion)
+            }
+        case .password:
+            passwordSave(data, to: url, completion: completion)
+        }
+    }
+
+    private func askHelperSetup(_ answer: @escaping (HelperSetupChoice) -> Void) {
+        if let helperSetupChoice { helperSetupChoice(answer); return }
+        let alert = NSAlert()
+        alert.messageText = "Use Touch ID for administrator saves?"
+        alert.informativeText = "MacPad++ can install a small helper so saves like this one ask for Touch ID "
+            + "instead of your password. You switch it on once in System Settings \u{203A} General \u{203A} "
+            + "Login Items. This save will ask for your password."
+        alert.addButton(withTitle: "Set Up Touch ID\u{2026}")
+        alert.addButton(withTitle: "Not Now")
+        alert.addButton(withTitle: "Don\u{2019}t Ask Again")
+        let handle: (NSApplication.ModalResponse) -> Void = { response in
+            switch response {
+            case .alertFirstButtonReturn: answer(.setUp)
+            case .alertThirdButtonReturn: answer(.dontAskAgain)
+            default: answer(.notNow)
+            }
+        }
+        if let hostWindow { alert.beginSheetModal(for: hostWindow, completionHandler: handle) } else { handle(alert.runModal()) }
+    }
+
+    /// MAC-22: macOS's administrator password prompt runs the install script as root.
+    private func passwordSave(_ data: Data, to url: URL, completion: @escaping (Bool) -> Void) {
+        do {
+            try PrivilegedSave.save(data, to: url)
+        } catch PrivilegedSaveError.cancelled {
+            completion(false)  // the user dismissed the password prompt: stay dirty, say nothing
+            return
+        } catch {
+            presentSaveError(error)
+            completion(false)
+            return
+        }
+        didWrite(to: url)
+        completion(true)
     }
 
     private func presentSaveError(_ error: Error) {

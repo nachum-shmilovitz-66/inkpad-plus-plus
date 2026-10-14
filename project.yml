@@ -19,6 +19,13 @@ targets:
     sources:
       - path: MacPad/Sources
       - path: MacPad/Resources
+      - path: MacPad/Shared
+      # MAC-24: launchd plist of the privileged helper, where SMAppService.daemon looks for it.
+      - path: MacPad/Helper/app.macpad.MacPad.helper.plist
+        buildPhase:
+          copyFiles:
+            destination: wrapper
+            subpath: Contents/Library/LaunchDaemons
     settings:
       base:
         PRODUCT_NAME: MacPad++
@@ -40,6 +47,11 @@ targets:
       - framework: build/deps/Scintilla.framework
         embed: true
         codeSign: true
+      # MAC-24: the helper binary goes into Contents/MacOS (the plist's BundleProgram).
+      - target: MacPadHelper
+        embed: true
+        copy:
+          destination: executables
     scheme:
       testTargets:
         - MacPad++Tests
@@ -55,6 +67,26 @@ targets:
           mkdir -p "$DEST"
           cp "$NPP/src/langs.model.xml" "$NPP/src/stylers.model.xml" "$DEST/"
           rsync -a --delete "$NPP/installer/themes/" "$DEST/themes/"
+
+  # MAC-24: privileged helper (launchd daemon via SMAppService); runs as root, writes one file per
+  # request, only for MacPad++ signed by the same team.
+  MacPadHelper:
+    type: tool
+    platform: macOS
+    sources:
+      - path: MacPad/Helper
+        excludes: ["*.plist"]
+      - path: MacPad/Shared
+    settings:
+      base:
+        PRODUCT_NAME: MacPadHelper
+        PRODUCT_BUNDLE_IDENTIFIER: app.macpad.MacPad.helper
+        OTHER_CODE_SIGN_FLAGS: "--identifier app.macpad.MacPad.helper"
+        SKIP_INSTALL: YES
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        DEVELOPMENT_TEAM: ""
+        ENABLE_HARDENED_RUNTIME: NO
 
   MacPad++Tests:
     type: bundle.unit-test
