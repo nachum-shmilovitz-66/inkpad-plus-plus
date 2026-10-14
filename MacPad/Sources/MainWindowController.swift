@@ -22,7 +22,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             contentRect: NSRect(x: 0, y: 0, width: 900, height: 688),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered, defer: false)
-        window.setFrameAutosaveName("MacPad++ Editor")
+        // Centered on first launch, then wherever the user leaves it (MAC-26). The old autosave
+        // name is dropped: frames saved under it came from the bottom-left default.
+        WindowPlacement.place(window)
         window.tabbingMode = .disallowed  // the document tabs are MacPad++'s own, not macOS window tabs
         super.init(window: window)
 
