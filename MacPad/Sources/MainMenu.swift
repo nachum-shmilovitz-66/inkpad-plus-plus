@@ -44,6 +44,8 @@ enum MainMenu {
         menu.addItem(.separator())
         menu.addItem(item("Settings…", #selector(AppDelegate.showPreferences(_:)), ","))
         menu.addItem(.separator())
+        menu.addItem(item("Uninstall MacPad++…", #selector(AppDelegate.uninstallMacPad(_:))))
+        menu.addItem(.separator())
         let services = NSMenu(title: "Services")
         menu.addItem(submenu(services))
         NSApp.servicesMenu = services

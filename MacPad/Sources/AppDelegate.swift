@@ -43,14 +43,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         mainWindow.open(urls, options: options ?? CommandLineOptions())
     }
 
+    // MARK: - Uninstall (MAC-53)
+
+    /// Set once the uninstaller ran: quit without asking again and without writing a session.
+    private(set) var isUninstalling = false
+
+    @IBAction func uninstallMacPad(_ sender: Any?) {
+        let uninstaller = Uninstaller()
+        guard uninstaller.isAvailable, let removeSettings = Uninstaller.confirm() else { return }
+        mainWindow.confirmDiscardAll { [weak self] ok in
+            guard ok, let self else { return }
+            do {
+                try uninstaller.run(removeSettings: removeSettings)
+            } catch PrivilegedSaveError.cancelled {
+                return
+            } catch {
+                NSApp.presentError(error)
+                return
+            }
+            self.isUninstalling = true
+            NSApp.terminate(nil)
+        }
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
+        guard !isUninstalling else { return }
         mainWindow.persistSession()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard mainWindow.hasDirtyTabs else { return .terminateNow }
+        guard mainWindow.hasDirtyTabs, !isUninstalling else { return .terminateNow }
         mainWindow.showWindow(nil)
         mainWindow.confirmDiscardAll { sender.reply(toApplicationShouldTerminate: $0) }
         return .terminateLater
@@ -263,6 +287,7 @@ extension AppDelegate: NSMenuItemValidation {
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         let recorder = MacroRecorder.shared
         switch item.action {
+        case #selector(uninstallMacPad(_:)): return Uninstaller().isAvailable  // the installed release only
         case #selector(startRecording(_:)): return !recorder.isRecording
         case #selector(stopRecording(_:)): return recorder.isRecording
         case #selector(playbackMacro(_:)): return !recorder.steps.isEmpty && !recorder.isRecording

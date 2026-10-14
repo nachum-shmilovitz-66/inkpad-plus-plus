@@ -82,6 +82,10 @@ the app, a Developer ID *Installer* certificate signs the package.
   typed into the user's instance). Before any UI scripting, list `pgrep -fl 'MacPad\+\+\.app/Contents/MacOS'`;
   if anything besides the test instance runs, do not script the UI — ask the user first. After
   activating, check `unix id of (first process whose frontmost is true)` equals the test pid.
+- `UserDefaults.removePersistentDomain(forName:)` deletes that domain for the whole user account,
+  whichever `UserDefaults` instance is asked. Tests only ever pass a throwaway suite name
+  (`app.macpad.MacPad.tests.*`), never `app.macpad.MacPad` — on 2026-10-14 an uninstaller test did,
+  and wiped the installed app's preferences (no backup existed).
 - Debug builds use the bundle id `app.macpad.MacPad.debug` (Release keeps `app.macpad.MacPad`), so
   Finder / Open With never launches a build-folder copy for the user's files and a Debug build never
   reads the installed app's preferences. Before this, one did (2026-10-14).
