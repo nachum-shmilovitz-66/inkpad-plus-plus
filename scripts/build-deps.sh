@@ -18,8 +18,16 @@ OUT=$ROOT/build/deps
 OBJ=$ROOT/build/obj-lexilla
 TARGET=arm64-apple-macos13.0
 
-[[ ${1:-} == --clean ]] && rm -rf "$OUT" "$OBJ" "$ROOT/build/dd-scintilla"
+[[ ${1:-} == --clean ]] && rm -rf "$OUT" "$OBJ" "$ROOT/build/dd-scintilla" "$ROOT/build/obj-boostregex" "$ROOT/build/obj-uchardet"
 mkdir -p "$OUT" "$OBJ" "$OBJ/shim"
+
+# MAC-64: only the reviewed, unmodified Notepad++ commit is built.
+"$ROOT/scripts/fetch-vendor.sh" >/dev/null
+
+# MAC-64: the vendor code parses every opened file — build it with the hardening Apple clang
+# offers on top of its defaults (stack protector on every function with arrays, libc++'s bounds
+# checks, zeroed locals).
+HARDEN=(-fstack-protector-strong -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST -ftrivial-auto-var-init=zero)
 
 echo "== libscintilla-boostregex.a"
 # Notepad++'s regex engine for Scintilla (MAC-29): boostregex/BoostRegExSearch.cxx with Boost.Regex
@@ -32,7 +40,7 @@ for src in $NPP/boostregex/{BoostRegExSearch,UTF8DocumentIterator}.cxx $ROOT/scr
   name=${src:t:r}
   o=$BRX/$name.o
   brx_objs+=$o
-  [[ -f $o && ! $src -nt $o ]] || xcrun clang++ -target $TARGET -std=c++17 -O2 -fPIC -DNDEBUG \
+  [[ -f $o && ! $src -nt $o ]] || xcrun clang++ -target $TARGET -std=c++17 -O2 -fPIC -DNDEBUG $HARDEN \
     -DSCI_OWNREGEX -DBOOST_REGEX_STANDALONE \
     -I"$NPP/scintilla/include" -I"$NPP/scintilla/src" -I"$NPP/boostregex" -c "$src" -o "$o"
 done
@@ -49,6 +57,7 @@ xcodebuild -quiet \
   SYMROOT="$OUT" CONFIGURATION_BUILD_DIR="$OUT" MACOSX_DEPLOYMENT_TARGET=13.0 \
   CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= CODE_SIGN_STYLE=Manual \
   GCC_PREPROCESSOR_DEFINITIONS='$(inherited) SCI_OWNREGEX=1' \
+  OTHER_CPLUSPLUSFLAGS="\$(inherited) ${HARDEN[*]}" \
   OTHER_LDFLAGS="-Wl,-force_load,$OUT/libscintilla-boostregex.a" \
   build
 # Without SCI_OWNREGEX, Document.cxx defines its own CreateRegexSearch and the force-loaded Boost
@@ -82,7 +91,7 @@ static inline char *_itoa(int value, char *buf, int radix) {
 }
 EOF
 LEX=$NPP/lexilla
-CXXFLAGS=(-target $TARGET -std=c++17 -O2 -fPIC -DNDEBUG
+CXXFLAGS=(-target $TARGET -std=c++17 -O2 -fPIC -DNDEBUG $HARDEN
   -I"$LEX/include" -I"$LEX/lexlib" -I"$NPP/scintilla/include" -I"$OBJ/shim"
   -Wno-deprecated-declarations)
 
@@ -113,7 +122,7 @@ uobjs=()
 for src in "$UCD"/*.cpp(N); do
   o=$UOBJ/${src:t:r}.o
   uobjs+=$o
-  [[ -f $o && ! $src -nt $o ]] || xcrun clang++ -target $TARGET -std=c++17 -O2 -fPIC -DNDEBUG -c "$src" -o "$o"
+  [[ -f $o && ! $src -nt $o ]] || xcrun clang++ -target $TARGET -std=c++17 -O2 -fPIC -DNDEBUG $HARDEN -c "$src" -o "$o"
 done
 rm -f "$OUT/libuchardet.a"
 xcrun libtool -static -o "$OUT/libuchardet.a" $uobjs

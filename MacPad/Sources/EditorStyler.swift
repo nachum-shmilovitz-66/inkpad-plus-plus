@@ -65,10 +65,20 @@ enum EditorStyler {
         v.send(SCI_SETFOLDFLAGS, Int(SC_FOLDFLAG_LINEAFTER_CONTRACTED))
     }
 
+    /// MAC-64: lexers compiled in but not offered — Notepad++'s user-defined-language lexer needs
+    /// the UDL feature, which is not ported, and keeps process-wide state keyed by pointers.
+    static let disabledLexers: Set<String> = ["user"]
+
+    /// The Lexilla lexer a language uses ("null" for none).
+    static func lexerName(for language: LanguageInfo) -> String {
+        let name = LexerRecipe.recipe(for: language.name).lexer ?? language.lexer
+        return disabledLexers.contains(name) ? "null" : name
+    }
+
     /// Selects the lexer for `language`, loads its keywords, and paints `theme`.
     static func apply(language: LanguageInfo, theme: StyleTheme, to v: ScintillaView) {
         let recipe = LexerRecipe.recipe(for: language.name)
-        let lexerName = recipe.lexer ?? language.lexer
+        let lexerName = lexerName(for: language)
 
         // 1. Lexer (substyles belong to the previous lexer and go with it).
         v.send(SCI_FREESUBSTYLES)
