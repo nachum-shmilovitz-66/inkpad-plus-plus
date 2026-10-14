@@ -321,6 +321,8 @@ final class SearchResultsWindowTests: XCTestCase {
         XCTAssertFalse(window.isSearchResultsVisible)
         window.showSearchResults(SearchResultsBlock(header: "Search \"q\" (0 hits in 0 files of 1 searched) [Normal]", files: [], hitCount: 0))
         XCTAssertTrue(window.isSearchResultsVisible)
+        XCTAssertGreaterThan(window.editorAreaHeight, window.searchResults.frame.height * 1.5,
+                             "the editor keeps most of the height")
         window.setSearchResultsVisible(false)
         XCTAssertFalse(window.isSearchResultsVisible)
         window.openTabs.forEach { $0.detach() }

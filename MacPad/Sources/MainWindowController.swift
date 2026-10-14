@@ -347,6 +347,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 
     var isSearchResultsVisible: Bool { !searchResults.isHidden }
+    /// The editor area's height, for the split between it and the results panel.
+    var editorAreaHeight: CGFloat { editorContainer.frame.height }
 
     func showSearchResults(_ block: SearchResultsBlock) {
         setSearchResultsVisible(true)
@@ -359,8 +361,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         searchResults.isHidden = !visible
         splitView.adjustSubviews()
         if visible {
-            let height = splitView.bounds.height
-            splitView.setPosition((height * 0.68).rounded(), ofDividerAt: 0)
+            // The editor keeps about two thirds of the height, as Notepad++'s docked panel leaves it.
+            window?.contentView?.layoutSubtreeIfNeeded()
+            splitView.setPosition((splitView.bounds.height * 0.68).rounded(), ofDividerAt: 0)
+            splitView.layoutSubtreeIfNeeded()
         } else {
             activeTab.map { window?.makeFirstResponder($0.editor) }
         }

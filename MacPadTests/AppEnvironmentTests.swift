@@ -30,4 +30,11 @@ final class AppEnvironmentTests: XCTestCase {
         XCTAssertTrue(RecentFilesStore.shared.files.paths.contains(url.standardizedFileURL.path),
                       "the test host's own list still works")
     }
+
+    /// Regression (2026-10-14): a Debug build shared the installed app's bundle id, so Finder
+    /// launched it for the user's files and it read the user's preferences.
+    func testDebugBuildsHaveTheirOwnBundleIdentifier() {
+        XCTAssertEqual(Bundle.main.bundleIdentifier, "app.macpad.MacPad.debug")
+        XCTAssertNotEqual(Bundle.main.bundleIdentifier, HelperIdentity.appIdentifier, "the installed app's id is Release only")
+    }
 }

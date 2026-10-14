@@ -37,6 +37,11 @@ targets:
         CODE_SIGN_STYLE: Manual
         DEVELOPMENT_TEAM: ""
         ENABLE_HARDENED_RUNTIME: NO
+      configs:
+        # A Debug build has its own bundle id: Finder / Open With never picks it over the
+        # installed app, and it never shares the installed app's preferences.
+        Debug:
+          PRODUCT_BUNDLE_IDENTIFIER: app.macpad.MacPad.debug
     dependencies:
       - framework: build/deps/Scintilla.framework
         embed: true
