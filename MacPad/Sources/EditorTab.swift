@@ -454,6 +454,11 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
 
     /// Where the caret and the viewport are, for session restore.
     var caretPosition: Int { editor.send(SCI_GETCURRENTPOS) }
+    /// Bookmarked lines (0-based), saved in the session as Notepad++ does.
+    var bookmarks: [Int] {
+        get { Marker(editor: editor).bookmarkedLines }
+        set { Marker(editor: editor).setBookmarks(newValue) }
+    }
     var firstVisibleLine: Int { editor.send(SCI_GETFIRSTVISIBLELINE) }
 
     /// Puts the caret and scroll position back. Both are clamped: the file may have been edited
@@ -495,6 +500,13 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
             onChange?()
         case SCN_MODIFIED:
             if n.linesAdded != 0 { EditorStyler.updateLineNumberWidth(editor) }
+        case SCN_MARGINCLICK where Int(n.margin) == Margin.symbol && n.modifiers == 0:
+            // A click in the bookmark margin toggles that line's bookmark.
+            Marker(editor: editor).toggleBookmark(editor.send(SCI_LINEFROMPOSITION, Int(n.position)))
+        case SCN_MARGINRIGHTCLICK where Int(n.margin) == Margin.symbol:
+            if let event = NSApp.currentEvent {
+                NSMenu.popUpContextMenu(MainMenu.bookmarkMenu(), with: event, for: editor)
+            }
         default:
             break
         }

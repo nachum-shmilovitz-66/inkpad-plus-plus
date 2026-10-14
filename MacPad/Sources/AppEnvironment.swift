@@ -23,6 +23,11 @@ enum AppEnvironment {
         return defaults
     }()
 
+    /// The clipboard for MacPad++'s own copy commands (Copy Marked Text, bookmarked lines): a
+    /// private pasteboard under test, so the tests never overwrite what the user copied.
+    static let pasteboard: NSPasteboard = isRunningTests
+        ? NSPasteboard(name: NSPasteboard.Name("app.macpad.MacPad.tests.pasteboard")) : .general
+
     /// Folder for session.json: Application Support, or a throwaway temp folder under test.
     static let supportDirectory: URL = {
         if isRunningTests {

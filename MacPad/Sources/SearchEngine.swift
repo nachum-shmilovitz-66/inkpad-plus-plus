@@ -138,8 +138,10 @@ struct SearchEngine {
         return processAll(.replaceAll, text, replacement: replacement, options: options)
     }
 
-    private func processAll(_ operation: AllOperation, _ text: String, replacement: String,
-                            options: SearchOptions) -> AllOutcome {
+    /// processRange. `onMatch` sees each match of a Count — Mark All and the token styles are
+    /// counts that also paint what they find.
+    func processAll(_ operation: AllOperation, _ text: String, replacement: String,
+                    options: SearchOptions, onMatch: ((Match) -> Void)? = nil) -> AllOutcome {
         let (range, scope) = scope(for: operation, options: options)
         guard !text.isEmpty else { return .done(0, scope: scope) }
         let pattern = bytes(options.prepared(text))
@@ -158,6 +160,7 @@ struct SearchEngine {
             case .found(let match, _):
                 guard match.end <= end else { break loop }
                 var delta = 0
+                onMatch?(match)
                 if operation == .replaceAll {
                     delta = replaceTarget(with: replacement, options: options) - (match.end - match.start)
                 }

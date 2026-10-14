@@ -1,10 +1,11 @@
 import AppKit
 
-/// Notepad++'s Find / Replace dialog (MAC-30): one modeless panel with a Find and a Replace tab,
+/// Notepad++'s Find / Replace dialog (MAC-30, Mark tab MAC-31): one modeless panel with Find,
+/// Replace and Mark tabs,
 /// the same options and search modes, and the status line under the buttons. The menu's Find
 /// Next / Find Previous use the panel's text and options even while it is closed, as F3 does.
 final class FindReplaceController: NSWindowController, NSWindowDelegate, NSComboBoxDelegate {
-    enum Tab: Int { case find, replace }
+    enum Tab: Int { case find, replace, mark }
 
     /// The editor the dialog acts on: the main window's visible tab.
     var editorProvider: () -> ScintillaView?
@@ -17,7 +18,7 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
     private(set) var tab: Tab = .find
 
     // Controls (internal so the tests can drive the dialog the way a user does).
-    let tabs = NSSegmentedControl(labels: ["Find", "Replace"], trackingMode: .selectOne, target: nil, action: nil)
+    let tabs = NSSegmentedControl(labels: ["Find", "Replace", "Mark"], trackingMode: .selectOne, target: nil, action: nil)
     let findField = NSComboBox()
     let replaceField = NSComboBox()
     private let replaceLabel = NSTextField(labelWithString: "Replace with:")
@@ -30,6 +31,11 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
     let extendedRadio = NSButton(radioButtonWithTitle: "Extended (\\n, \\r, \\t, \\0, \\x…)", target: nil, action: nil)
     let regexRadio = NSButton(radioButtonWithTitle: "Regular expression", target: nil, action: nil)
     let dotNewlineBox = NSButton(checkboxWithTitle: ". matches newline", target: nil, action: nil)
+    let bookmarkLineBox = NSButton(checkboxWithTitle: "Bookmark line", target: nil, action: nil)
+    let purgeBox = NSButton(checkboxWithTitle: "Purge for each search", target: nil, action: nil)
+    let markAllButton = NSButton(title: "Mark All", target: nil, action: nil)
+    let clearMarksButton = NSButton(title: "Clear all marks", target: nil, action: nil)
+    let copyMarkedButton = NSButton(title: "Copy Marked Text", target: nil, action: nil)
     let findNextButton = NSButton(title: "Find Next", target: nil, action: nil)
     let countButton = NSButton(title: "Count", target: nil, action: nil)
     let replaceButton = NSButton(title: "Replace", target: nil, action: nil)
@@ -169,6 +175,33 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
         }
     }
 
+    /// Mark All: the Find Mark indicator on every match (bookmarking their lines when asked).
+    func markAll() {
+        guard let editor = editorProvider() else { return }
+        let text = findField.stringValue
+        guard !text.isEmpty else { return }
+        remember(find: text)
+        switch Marker(editor: editor).markAll(text, options: options, bookmarkLine: options.bookmarkLine, purge: options.purge) {
+        case .invalidRegex: report(SearchMessages.invalidRegex)
+        case .readOnly: break
+        case .done(let n, let scope):
+            report(SearchMessages.marked(n, scope: scope), hint: n == 0 ? SearchMessages.hint(for: options) : nil)
+        }
+    }
+
+    func clearMarks() {
+        guard let editor = editorProvider() else { return }
+        let marker = Marker(editor: editor)
+        marker.clearMarks(inSelection: options.inSelection && SearchEngine(editor: editor).hasUsableSelection,
+                          bookmarkLine: options.bookmarkLine)
+        report(nil)
+    }
+
+    func copyMarkedText() {
+        guard let editor = editorProvider(), let text = Marker(editor: editor).markedText([MarkIndicator.findMark]) else { return }
+        MainWindowController.copyToPasteboard(text)
+    }
+
     /// ⌘E (Use Selection for Find): the selection becomes Find what, without opening the panel.
     func useSelectionForFind() {
         guard let editor = editorProvider(), let text = Self.seedText(from: editor) else { NSSound.beep(); return }
@@ -232,13 +265,28 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
     func setTab(_ newTab: Tab) {
         tab = newTab
         tabs.selectedSegment = newTab.rawValue
-        let replacing = newTab == .replace
-        window?.title = replacing ? "Replace" : "Find"
+        let replacing = newTab == .replace, marking = newTab == .mark
+        window?.title = ["Find", "Replace", "Mark"][newTab.rawValue]
         replaceLabel.isHidden = !replacing
         replaceField.isHidden = !replacing
         replaceButton.isHidden = !replacing
         replaceAllButton.isHidden = !replacing
-        countButton.isHidden = replacing
+        countButton.isHidden = newTab != .find
+        findNextButton.isHidden = marking
+        for view in [bookmarkLineBox, purgeBox, markAllButton, clearMarksButton, copyMarkedButton] as [NSView] {
+            view.isHidden = !marking
+        }
+        fitWindowToContent()
+    }
+
+    /// The panel is as big as its content needs (the margins included), whatever the tab.
+    func fitWindowToContent() {
+        guard let window, let content = window.contentView else { return }
+        content.layoutSubtreeIfNeeded()
+        let size = content.fittingSize
+        var frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: size))
+        frame.origin = NSPoint(x: window.frame.minX, y: window.frame.maxY - frame.height)  // keep the top edge
+        window.setFrame(frame, display: true)
     }
 
     /// In selection needs a single, non-empty stream selection; Notepad++ ticks it by itself when
@@ -268,6 +316,8 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
         regexRadio.state = options.mode == .regex ? .on : .off
         dotNewlineBox.state = options.effectiveDotMatchesNewline ? .on : .off
         dotNewlineBox.isEnabled = options.mode == .regex
+        bookmarkLineBox.state = options.bookmarkLine ? .on : .off
+        purgeBox.state = options.purge ? .on : .off
     }
 
     @objc private func optionChanged(_ sender: NSButton) {
@@ -279,6 +329,8 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
         case matchCaseBox: options.matchCase = on
         case wrapBox: options.wrapAround = on
         case dotNewlineBox: options.dotMatchesNewline = on
+        case bookmarkLineBox: options.bookmarkLine = on
+        case purgeBox: options.purge = on
         case normalRadio: options.mode = .normal
         case extendedRadio: options.mode = .extended
         case regexRadio: options.mode = .regex
@@ -296,12 +348,15 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
     @objc private func countClicked(_ sender: Any?) { count() }
     @objc private func replaceClicked(_ sender: Any?) { replace() }
     @objc private func replaceAllClicked(_ sender: Any?) { replaceAll() }
+    @objc private func markAllClicked(_ sender: Any?) { markAll() }
+    @objc private func clearMarksClicked(_ sender: Any?) { clearMarks() }
+    @objc private func copyMarkedClicked(_ sender: Any?) { copyMarkedText() }
 
     // Return in either field is Find Next; Shift-Return searches the other way once.
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         switch selector {
         case #selector(NSResponder.insertNewline(_:)):
-            findNext(reversed: NSApp.currentEvent?.modifierFlags.contains(.shift) == true)
+            if tab == .mark { markAll() } else { findNext(reversed: NSApp.currentEvent?.modifierFlags.contains(.shift) == true) }
             return true
         case #selector(NSResponder.cancelOperation(_:)):
             close()
@@ -321,7 +376,8 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
         guard let content = window?.contentView else { return }
         tabs.target = self
         tabs.action = #selector(tabChanged(_:))
-        for box in [inSelectionBox, backwardBox, wholeWordBox, matchCaseBox, wrapBox, normalRadio, extendedRadio, regexRadio, dotNewlineBox] {
+        for box in [inSelectionBox, backwardBox, wholeWordBox, matchCaseBox, wrapBox, normalRadio, extendedRadio, regexRadio,
+                    dotNewlineBox, bookmarkLineBox, purgeBox] {
             box.target = self
             box.action = #selector(optionChanged(_:))
         }
@@ -334,6 +390,12 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
         replaceButton.action = #selector(replaceClicked(_:))
         replaceAllButton.target = self
         replaceAllButton.action = #selector(replaceAllClicked(_:))
+        markAllButton.target = self
+        markAllButton.action = #selector(markAllClicked(_:))
+        clearMarksButton.target = self
+        clearMarksButton.action = #selector(clearMarksClicked(_:))
+        copyMarkedButton.target = self
+        copyMarkedButton.action = #selector(copyMarkedClicked(_:))
         for field in [findField, replaceField] {
             field.completes = false
             field.numberOfVisibleItems = 12
@@ -347,7 +409,7 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
         fields.rowAlignment = .firstBaseline
         fields.rowSpacing = 8
 
-        let checks = NSStackView(views: [inSelectionBox, backwardBox, wholeWordBox, matchCaseBox, wrapBox])
+        let checks = NSStackView(views: [bookmarkLineBox, purgeBox, inSelectionBox, backwardBox, wholeWordBox, matchCaseBox, wrapBox])
         checks.orientation = .vertical
         checks.alignment = .leading
         checks.spacing = 6
@@ -370,12 +432,13 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
         left.alignment = .leading
         left.spacing = 16
 
-        let buttons = NSStackView(views: [findNextButton, countButton, replaceButton, replaceAllButton])
+        let buttons = NSStackView(views: [findNextButton, countButton, replaceButton, replaceAllButton,
+                                          markAllButton, clearMarksButton, copyMarkedButton])
         buttons.orientation = .vertical
         buttons.alignment = .leading
         buttons.spacing = 8
-        for button in [findNextButton, countButton, replaceButton, replaceAllButton] {
-            button.widthAnchor.constraint(equalToConstant: 120).isActive = true
+        for button in [findNextButton, countButton, replaceButton, replaceAllButton, markAllButton, clearMarksButton, copyMarkedButton] {
+            button.widthAnchor.constraint(equalToConstant: 140).isActive = true
         }
 
         let body = NSStackView(views: [left, buttons])
@@ -389,17 +452,19 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
         root.orientation = .vertical
         root.alignment = .leading
         root.spacing = 14
-        root.edgeInsets = NSEdgeInsets(top: 14, left: 18, bottom: 12, right: 18)
         root.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(root)
+        // Explicit margins: a leading-aligned stack's own edgeInsets let the widest row reach
+        // the window's right edge.
         NSLayoutConstraint.activate([
-            root.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            root.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            root.topAnchor.constraint(equalTo: content.topAnchor),
-            root.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            root.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 18),
+            root.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -18),
+            root.topAnchor.constraint(equalTo: content.topAnchor, constant: 14),
+            root.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -12),
+            body.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             tabs.centerXAnchor.constraint(equalTo: root.centerXAnchor),
             statusLabel.widthAnchor.constraint(equalTo: body.widthAnchor),
         ])
-        window?.setContentSize(root.fittingSize)
+        fitWindowToContent()
     }
 }

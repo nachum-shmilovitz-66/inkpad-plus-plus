@@ -38,6 +38,9 @@ enum EditorStyler {
         v.send(SCI_SETMARGINTYPEN, Margin.symbol, Int(SC_MARGIN_COLOUR))
         v.send(SCI_SETMARGINWIDTHN, Margin.symbol, 16)
         v.send(SCI_SETMARGINSENSITIVEN, Margin.symbol, 1)
+        v.send(SCI_SETMARGINMASKN, Margin.symbol, (1 << MarkIndicator.bookmark) | (1 << 19) | (1 << 18))
+        defineBookmarkMarker(v)
+        configureIndicators(v)
         v.send(SCI_SETMARGINTYPEN, Margin.fold, Int(SC_MARGIN_SYMBOL))
         v.send(SCI_SETMARGINMASKN, Margin.fold, Int(SC_MASK_FOLDERS))
         v.send(SCI_SETMARGINWIDTHN, Margin.fold, 14)
@@ -152,6 +155,12 @@ enum EditorStyler {
         }
         if let c = theme.global("Edge colour")?.foreground { v.send(SCI_SETEDGECOLOUR, c) }
         if let c = theme.global("Bookmark margin")?.background { v.send(SCI_SETMARGINBACKN, Margin.symbol, c) }
+        // ScintillaEditView::setSpecialIndicator: an indicator's colour is its styler's bgColor.
+        for entry in MarkIndicator.themeEntries {
+            if let c = theme.global(entry.name)?.background ?? scintillaColour(fromHex: entry.fallback) {
+                v.send(SCI_INDICSETFORE, entry.indicator, c)
+            }
+        }
         if let fold = theme.global("Fold") {
             for num in Int(SC_MARKNUM_FOLDEREND)...Int(SC_MARKNUM_FOLDEROPEN) {
                 // ScintillaEditView::defineMarker: fore = fgColor, back = bgColor.
@@ -164,6 +173,56 @@ enum EditorStyler {
             if let bg = margin.background { v.send(SCI_SETFOLDMARGINCOLOUR, 1, bg) }
             if let fg = margin.foreground { v.send(SCI_SETFOLDMARGINHICOLOUR, 1, fg) }
         }
+    }
+
+    /// Notepad++'s mark indicators: a translucent rounded box under the text.
+    private static func configureIndicators(_ v: ScintillaView) {
+        for entry in MarkIndicator.themeEntries {
+            v.send(SCI_INDICSETSTYLE, entry.indicator, Int(INDIC_ROUNDBOX))
+            v.send(SCI_INDICSETALPHA, entry.indicator, 100)
+            v.send(SCI_INDICSETUNDER, entry.indicator, 1)
+            if let c = scintillaColour(fromHex: entry.fallback) { v.send(SCI_INDICSETFORE, entry.indicator, c) }
+        }
+    }
+
+    /// The bookmark: a blue ball like Notepad++'s bookmark14 image, drawn at 2x for Retina.
+    private static func defineBookmarkMarker(_ v: ScintillaView) {
+        let pixels = bookmarkImage(points: 14, scale: 2)
+        v.send(SCI_RGBAIMAGESETWIDTH, 28)
+        v.send(SCI_RGBAIMAGESETHEIGHT, 28)
+        v.send(SCI_RGBAIMAGESETSCALE, 200)
+        pixels.withUnsafeBytes { v.send(SCI_MARKERDEFINERGBAIMAGE, MarkIndicator.bookmark, pointer: $0.baseAddress) }
+    }
+
+    /// RGBA (not premultiplied) pixels of the bookmark ball, as SCI_MARKERDEFINERGBAIMAGE expects.
+    static func bookmarkImage(points: Int, scale: Int) -> [UInt8] {
+        let size = points * scale
+        var pixels = [UInt8](repeating: 0, count: size * size * 4)
+        pixels.withUnsafeMutableBytes { raw in
+            guard let context = CGContext(data: raw.baseAddress, width: size, height: size, bitsPerComponent: 8,
+                                          bytesPerRow: size * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
+            let s = CGFloat(scale)
+            let ball = CGRect(x: 1.5 * s, y: 1.5 * s, width: (CGFloat(points) - 3) * s, height: (CGFloat(points) - 3) * s)
+            context.addEllipse(in: ball)
+            context.clip()
+            let colours = [CGColor(srgbRed: 0.53, green: 0.60, blue: 0.89, alpha: 1), CGColor(srgbRed: 0.19, green: 0.33, blue: 0.80, alpha: 1)]
+            if let gradient = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB), colors: colours as CFArray, locations: [0, 1]) {
+                context.drawRadialGradient(gradient, startCenter: CGPoint(x: ball.midX - ball.width * 0.18, y: ball.midY + ball.height * 0.18),
+                                           startRadius: 0, endCenter: CGPoint(x: ball.midX, y: ball.midY), endRadius: ball.width / 2,
+                                           options: [.drawsAfterEndLocation])
+            }
+            context.resetClip()
+            context.setStrokeColor(CGColor(srgbRed: 0.12, green: 0.22, blue: 0.62, alpha: 1))
+            context.setLineWidth(s * 0.75)
+            context.strokeEllipse(in: ball)
+        }
+        // A bitmap context's memory is already top row first; only the premultiplication goes.
+        for i in stride(from: 0, to: pixels.count, by: 4) {
+            let a = Int(pixels[i + 3])
+            for c in 0..<3 { pixels[i + c] = a == 0 ? 0 : UInt8(min(255, Int(pixels[i + c]) * 255 / a)) }
+        }
+        return pixels
     }
 
     /// Line-number margin wide enough for the current line count (Notepad++'s dynamic width).

@@ -110,7 +110,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                 path: path,
                 caretPosition: tab.caretPosition,
                 firstVisibleLine: tab.firstVisibleLine,
-                isMonitoring: tab.isMonitoring))
+                isMonitoring: tab.isMonitoring,
+                bookmarks: tab.bookmarks))
         }
         return SessionState(documents: documents, activeIndex: active)
     }
@@ -134,6 +135,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                 continue
             }
             add(tab)
+            tab.bookmarks = document.bookmarks
             if document.isMonitoring {
                 try? tab.startMonitoring()  // positions at the end, as monitoring does
             } else {
@@ -320,6 +322,59 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     @IBAction func zoomInText(_ sender: Any?) { activeTab?.editor.send(SCI_ZOOMIN) }
     @IBAction func zoomOutText(_ sender: Any?) { activeTab?.editor.send(SCI_ZOOMOUT) }
     @IBAction func restoreTextZoom(_ sender: Any?) { activeTab?.editor.send(SCI_SETZOOM, 0) }
+
+    // MARK: - Search › token styles and bookmarks (MAC-31)
+
+    private var marker: Marker? { activeTab.map { Marker(editor: $0.editor) } }
+
+    /// Menu tags 0–4 are the five styles; 5 is "all styles" or the Find Mark, 6 the Find Mark.
+    private func styleIndicator(_ sender: Any?) -> Int? {
+        let tag = (sender as? NSMenuItem)?.tag ?? 0
+        return tag < 5 ? MarkIndicator.styles[tag] : (tag == 5 ? MarkIndicator.findMark : nil)
+    }
+
+    @IBAction func styleAllOccurrences(_ sender: Any?) {
+        marker?.styleAllOccurrences(style: min((sender as? NSMenuItem)?.tag ?? 0, 4))
+    }
+    @IBAction func styleOneToken(_ sender: Any?) { marker?.styleOneToken(style: min((sender as? NSMenuItem)?.tag ?? 0, 4)) }
+    @IBAction func clearStyle(_ sender: Any?) {
+        let tag = (sender as? NSMenuItem)?.tag ?? 0
+        tag < 5 ? marker?.clearStyle(MarkIndicator.styles[tag]) : marker?.clearAllStyles()
+    }
+    @IBAction func jumpUp(_ sender: Any?) {
+        if let indicator = styleIndicator(sender), marker?.jump(to: indicator, down: false) != true { NSSound.beep() }
+    }
+    @IBAction func jumpDown(_ sender: Any?) {
+        if let indicator = styleIndicator(sender), marker?.jump(to: indicator, down: true) != true { NSSound.beep() }
+    }
+    @IBAction func copyStyledText(_ sender: Any?) {
+        let tag = (sender as? NSMenuItem)?.tag ?? 0
+        let indicators = tag < 5 ? [MarkIndicator.styles[tag]] : (tag == 5 ? MarkIndicator.styles : [MarkIndicator.findMark])
+        if let text = marker?.markedText(indicators) { Self.copyToPasteboard(text) }
+    }
+
+    @IBAction func toggleBookmark(_ sender: Any?) { marker?.toggleBookmark() }
+    @IBAction func nextBookmark(_ sender: Any?) { marker?.gotoBookmark(next: true) }
+    @IBAction func previousBookmark(_ sender: Any?) { marker?.gotoBookmark(next: false) }
+    @IBAction func clearAllBookmarks(_ sender: Any?) { marker?.clearAllBookmarks() }
+    @IBAction func copyBookmarkedLines(_ sender: Any?) {
+        if let text = marker?.bookmarkedLinesText() { Self.copyToPasteboard(text) }
+    }
+    @IBAction func cutBookmarkedLines(_ sender: Any?) {
+        if let text = marker?.cutBookmarkedLines() { Self.copyToPasteboard(text) }
+    }
+    @IBAction func pasteToBookmarkedLines(_ sender: Any?) {
+        guard let text = AppEnvironment.pasteboard.string(forType: .string) else { return }
+        marker?.replaceBookmarkedLines(with: text)
+    }
+    @IBAction func removeBookmarkedLines(_ sender: Any?) { marker?.removeBookmarkedLines() }
+    @IBAction func removeUnbookmarkedLines(_ sender: Any?) { marker?.removeUnbookmarkedLines() }
+    @IBAction func inverseBookmarks(_ sender: Any?) { marker?.inverseBookmarks() }
+
+    static func copyToPasteboard(_ text: String) {
+        AppEnvironment.pasteboard.clearContents()
+        AppEnvironment.pasteboard.setString(text, forType: .string)
+    }
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         guard let editor = activeTab?.editor else { return false }

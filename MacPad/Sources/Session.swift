@@ -10,24 +10,29 @@ struct SessionState: Codable, Equatable {
         var firstVisibleLine: Int
         /// Monitoring (tail -f) was on for this tab.
         var isMonitoring: Bool
+        /// Bookmarked lines, 0-based (Notepad++'s <Mark line="N"/>).
+        var bookmarks: [Int]
 
-        init(path: String, caretPosition: Int = 0, firstVisibleLine: Int = 0, isMonitoring: Bool = false) {
+        init(path: String, caretPosition: Int = 0, firstVisibleLine: Int = 0, isMonitoring: Bool = false,
+             bookmarks: [Int] = []) {
             self.path = path
             self.caretPosition = caretPosition
             self.firstVisibleLine = firstVisibleLine
             self.isMonitoring = isMonitoring
+            self.bookmarks = bookmarks
         }
 
-        private enum CodingKeys: String, CodingKey { case path, caretPosition, firstVisibleLine, isMonitoring }
+        private enum CodingKeys: String, CodingKey { case path, caretPosition, firstVisibleLine, isMonitoring, bookmarks }
 
-        /// Sessions written before monitoring existed have no `isMonitoring`: read them as off,
-        /// rather than discarding the whole session.
+        /// Sessions written before monitoring or bookmarks existed lack those keys: read them as
+        /// off / none, rather than discarding the whole session.
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             path = try c.decode(String.self, forKey: .path)
             caretPosition = try c.decode(Int.self, forKey: .caretPosition)
             firstVisibleLine = try c.decode(Int.self, forKey: .firstVisibleLine)
             isMonitoring = try c.decodeIfPresent(Bool.self, forKey: .isMonitoring) ?? false
+            bookmarks = try c.decodeIfPresent([Int].self, forKey: .bookmarks) ?? []
         }
     }
 

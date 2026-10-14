@@ -17,6 +17,9 @@ struct SearchOptions: Codable, Equatable {
     var backward = false
     var inSelection = false
     var dotMatchesNewline = false
+    /// Mark tab: bookmark the lines of the matches, and clear earlier marks first.
+    var bookmarkLine = false
+    var purge = false
 
     /// Whole word and backward direction are disabled in Regex mode, ". matches newline" is
     /// enabled only there (Notepad++'s regexBackward4PowerUser is off by default).
@@ -170,6 +173,10 @@ enum SearchMessages {
     static func count(_ n: Int, scope: SearchScope) -> SearchStatus {
         let number = NumberFormatter.localizedString(from: NSNumber(value: n), number: .decimal)
         return SearchStatus(kind: .message, text: n == 1 ? "Count: 1 match \(scope.text)" : "Count: \(number) matches \(scope.text)")
+    }
+    static func marked(_ n: Int, scope: SearchScope) -> SearchStatus {
+        let number = NumberFormatter.localizedString(from: NSNumber(value: n), number: .decimal)
+        return SearchStatus(kind: .message, text: n == 1 ? "Mark: 1 match \(scope.text)" : "Mark: \(number) matches \(scope.text)")
     }
     static func replacedAll(_ n: Int, scope: SearchScope) -> SearchStatus {
         SearchStatus(kind: .message, text: n == 1 ? "Replace All: 1 occurrence was replaced \(scope.text)"

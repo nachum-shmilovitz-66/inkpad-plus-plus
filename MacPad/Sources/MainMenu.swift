@@ -79,6 +79,7 @@ enum MainMenu {
     }
 
     /// Notepad++'s Search menu with Mac shortcuts: ⌘F Find, ⌥⌘F Replace (Ctrl+H is Hide on a Mac),
+    /// ⇧⌘M Mark (⌘M is Minimize),
     /// ⌘G / ⇧⌘G for F3 / Shift+F3, ⌥⌘G / ⌥⇧⌘G for Ctrl+F3 / Ctrl+Shift+F3, ⌘E Use Selection for Find.
     private static func searchMenu() -> NSMenu {
         let menu = NSMenu(title: "Search")
@@ -90,6 +91,57 @@ enum MainMenu {
         menu.addItem(item("Use Selection for Find", #selector(AppDelegate.useSelectionForFind(_:)), "e"))
         menu.addItem(.separator())
         menu.addItem(item("Replace…", #selector(AppDelegate.showReplacePanel(_:)), "f", [.command, .option]))
+        menu.addItem(item("Mark…", #selector(AppDelegate.showMarkPanel(_:)), "m", [.command, .shift]))
+        menu.addItem(.separator())
+        menu.addItem(styleSubmenu("Style All Occurrences of Token", #selector(MainWindowController.styleAllOccurrences(_:)), styles))
+        menu.addItem(styleSubmenu("Style One Token", #selector(MainWindowController.styleOneToken(_:)), styles))
+        menu.addItem(styleSubmenu("Clear Style", #selector(MainWindowController.clearStyle(_:)), styles + [(5, "Clear all Styles")]))
+        menu.addItem(styleSubmenu("Jump Up", #selector(MainWindowController.jumpUp(_:)), styles + [(5, "Find Mark Style")],
+                                  keys: [.command, .option]))
+        menu.addItem(styleSubmenu("Jump Down", #selector(MainWindowController.jumpDown(_:)), styles + [(5, "Find Mark Style")],
+                                  keys: .command))
+        menu.addItem(styleSubmenu("Copy Styled Text", #selector(MainWindowController.copyStyledText(_:)),
+                                  styles + [(5, "All Styles"), (6, "Find Mark Style")]))
+        menu.addItem(.separator())
+        let bookmark = NSMenuItem(title: "Bookmark", action: nil, keyEquivalent: "")
+        bookmark.submenu = bookmarkMenu()
+        menu.addItem(bookmark)
+        return menu
+    }
+
+    private static let styles: [(Int, String)] = (0..<5).map { ($0, ["1st", "2nd", "3rd", "4th", "5th"][$0] + " Style") }
+
+    /// A submenu of the five token styles (tags 0–4) plus extras. With `keys`, items get
+    /// Notepad++'s Ctrl+1…5 / Ctrl+0 as ⌘ (or ⌥⌘) 1…5 / 0.
+    private static func styleSubmenu(_ title: String, _ action: Selector, _ entries: [(Int, String)],
+                                     keys: NSEvent.ModifierFlags? = nil) -> NSMenuItem {
+        let submenu = NSMenu(title: title)
+        for (tag, name) in entries {
+            let key = keys == nil ? "" : (tag < 5 ? String(tag + 1) : "0")
+            let entry = item(name, action, key, keys ?? .command)
+            entry.tag = tag
+            submenu.addItem(entry)
+        }
+        let parent = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        parent.submenu = submenu
+        return parent
+    }
+
+    /// Search › Bookmark, also shown by a right-click in the bookmark margin. Notepad++'s
+    /// Ctrl+F2 / F2 / Shift+F2 are ⌘F2 / F2 / ⇧F2.
+    static func bookmarkMenu() -> NSMenu {
+        let f2 = String(Character(Unicode.Scalar(UInt32(NSF2FunctionKey))!))
+        let menu = NSMenu(title: "Bookmark")
+        menu.addItem(item("Toggle Bookmark", #selector(MainWindowController.toggleBookmark(_:)), f2, .command))
+        menu.addItem(item("Next Bookmark", #selector(MainWindowController.nextBookmark(_:)), f2, []))
+        menu.addItem(item("Previous Bookmark", #selector(MainWindowController.previousBookmark(_:)), f2, .shift))
+        menu.addItem(item("Clear All Bookmarks", #selector(MainWindowController.clearAllBookmarks(_:))))
+        menu.addItem(item("Cut Bookmarked Lines", #selector(MainWindowController.cutBookmarkedLines(_:))))
+        menu.addItem(item("Copy Bookmarked Lines", #selector(MainWindowController.copyBookmarkedLines(_:))))
+        menu.addItem(item("Paste to (Replace) Bookmarked Lines", #selector(MainWindowController.pasteToBookmarkedLines(_:))))
+        menu.addItem(item("Remove Bookmarked Lines", #selector(MainWindowController.removeBookmarkedLines(_:))))
+        menu.addItem(item("Remove Non-Bookmarked Lines", #selector(MainWindowController.removeUnbookmarkedLines(_:))))
+        menu.addItem(item("Inverse Bookmark", #selector(MainWindowController.inverseBookmarks(_:))))
         return menu
     }
 
