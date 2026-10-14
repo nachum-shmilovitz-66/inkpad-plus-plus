@@ -20,6 +20,7 @@ targets:
       - path: MacPad/Sources
       - path: MacPad/Resources
       - path: MacPad/Shared
+      - path: MacPad/CommandLine
     settings:
       base:
         PRODUCT_NAME: MacPad++
@@ -48,6 +49,11 @@ targets:
         codeSign: true
       # MAC-24: the helper binary goes into Contents/MacOS (the plist's BundleProgram).
       - target: MacPadHelper
+        embed: true
+        copy:
+          destination: executables
+      # MAC-52: the macpad command-line tool, linked into /usr/local/bin by the package.
+      - target: macpad
         embed: true
         copy:
           destination: executables
@@ -81,6 +87,24 @@ targets:
         PRODUCT_NAME: MacPadHelper
         PRODUCT_BUNDLE_IDENTIFIER: app.macpad.MacPad.helper
         OTHER_CODE_SIGN_FLAGS: "--identifier app.macpad.MacPad.helper"
+        SKIP_INSTALL: YES
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        DEVELOPMENT_TEAM: ""
+        ENABLE_HARDENED_RUNTIME: NO
+
+  # MAC-52: `macpad file -n42` from a shell; hands Notepad++'s options to the app.
+  macpad:
+    type: tool
+    platform: macOS
+    sources:
+      - path: MacPad/Tool
+      - path: MacPad/CommandLine
+    settings:
+      base:
+        PRODUCT_NAME: macpad
+        PRODUCT_BUNDLE_IDENTIFIER: app.macpad.MacPad.cli
+        OTHER_CODE_SIGN_FLAGS: "--identifier app.macpad.MacPad.cli"
         SKIP_INSTALL: YES
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGN_STYLE: Manual

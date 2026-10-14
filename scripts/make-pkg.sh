@@ -52,6 +52,7 @@ fi
 # Inside-out: the privileged helper and the embedded framework first, then the app. The helper's
 # identifier is what the app's code-signing requirement for it names (MAC-24).
 $SIGN --identifier app.macpad.MacPad.helper "$APP/Contents/MacOS/MacPadHelper"
+$SIGN --identifier app.macpad.MacPad.cli "$APP/Contents/MacOS/macpad"
 $SIGN "$APP/Contents/Frameworks/Scintilla.framework"
 $SIGN "$APP"
 codesign --verify --deep --strict "$APP"

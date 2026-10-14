@@ -3,7 +3,7 @@
 # Installs MacPad++'s privileged helper as a launchd daemon, so administrator saves can use Touch ID
 # without any further approval step: the user already approved this installation.
 # Never fails the installation: without the helper, MacPad++ falls back to the password prompt.
-# Test overrides (never set by Installer): MACPAD_LAUNCHD_DIR, MACPAD_LAUNCHCTL.
+# Test overrides (never set by Installer): MACPAD_LAUNCHD_DIR, MACPAD_LAUNCHCTL, MACPAD_BIN_DIR.
 set -u
 
 LABEL="app.macpad.MacPad.helper"
@@ -12,6 +12,21 @@ HELPER="$TARGET/MacPad++.app/Contents/MacOS/MacPadHelper"
 DAEMONS="${MACPAD_LAUNCHD_DIR:-/Library/LaunchDaemons}"
 LAUNCHCTL="${MACPAD_LAUNCHCTL:-/bin/launchctl}"
 PLIST="$DAEMONS/$LABEL.plist"
+
+# MAC-52: the `macpad` command-line tool on the PATH, as a link into the app. A `macpad` there that
+# is not MacPad++'s own link is left alone.
+BIN="${MACPAD_BIN_DIR:-/usr/local/bin}"
+TOOL="$TARGET/MacPad++.app/Contents/MacOS/macpad"
+if [ -x "$TOOL" ]; then
+  mkdir -p "$BIN"
+  if [ ! -e "$BIN/macpad" ] && [ ! -L "$BIN/macpad" ]; then
+    ln -s "$TOOL" "$BIN/macpad"
+  elif [ -L "$BIN/macpad" ] && readlink "$BIN/macpad" | grep -q 'MacPad++\.app/Contents/MacOS/macpad$'; then
+    ln -sfn "$TOOL" "$BIN/macpad"
+  else
+    echo "MacPad++: $BIN/macpad is not MacPad++'s; left as it is" >&2
+  fi
+fi
 
 if [ ! -x "$HELPER" ]; then
   echo "MacPad++: helper not found at $HELPER; administrator saves will use the password prompt" >&2

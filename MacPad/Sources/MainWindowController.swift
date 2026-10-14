@@ -180,6 +180,89 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         }
     }
 
+    // MARK: - Command line (MAC-52)
+
+    /// Opens files from Finder or the `macpad` tool with Notepad++'s command-line options
+    /// (Notepad_plus::loadCommandlineParams): a folder opens its files (all levels with -r) or goes
+    /// to Folder as Workspace; then each file takes the language, read-only, caret and monitoring.
+    func open(_ urls: [URL], options: CommandLineOptions) {
+        var files: [URL] = []
+        var folders: [URL] = []
+        for url in urls {
+            var isDirectory: ObjCBool = false
+            let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+            if exists && isDirectory.boolValue && !Self.isPackage(url) { folders.append(url) } else { files.append(url) }
+        }
+        if options.foldersAsWorkspace {
+            if !folders.isEmpty { addWorkspaceFolders(folders) }
+        } else {
+            files += folders.flatMap { Self.files(in: $0, recursive: options.recursive) }
+        }
+        // An unknown language is ignored, as Notepad++ ignores one it does not know.
+        let language = options.language.flatMap { wanted in
+            LanguageCatalog.shared.languages.keys.first { $0.caseInsensitiveCompare(wanted) == .orderedSame }
+        }.flatMap { LanguageCatalog.shared.language(named: $0) }
+        var last: EditorTab?
+        for file in files {
+            open(file)
+            let standardized = file.standardizedFileURL
+            guard let tab = openTabs.first(where: { $0.fileURL?.standardizedFileURL == standardized }) else { continue }
+            last = tab
+            if let language { tab.setLanguage(language) }
+            if options.readOnly { tab.isUserReadOnly = true }
+            if let caret = options.caret { place(caret, in: tab) }
+            if options.monitor && !tab.isMonitoring && tab.twin == nil && !tab.isModified { try? tab.startMonitoring() }
+        }
+        if let last { focus(last) }
+        refresh()
+        persistSession()
+    }
+
+    private static func isPackage(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.isPackageKey]).isPackage) == true
+    }
+
+    /// A folder's files by name, hidden ones and packages left out; sub-folders' too with -r.
+    static func files(in folder: URL, recursive: Bool) -> [URL] {
+        let keys: [URLResourceKey] = [.isDirectoryKey, .isPackageKey]
+        let names = ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? [])
+            .filter { !$0.hasPrefix(".") }
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        var result: [URL] = []
+        for name in names {
+            let url = folder.appendingPathComponent(name)
+            let values = try? url.resourceValues(forKeys: Set(keys))
+            if values?.isPackage == true { continue }
+            if values?.isDirectory == true {
+                if recursive { result += files(in: url, recursive: true) }
+            } else {
+                result.append(url)
+            }
+        }
+        return result
+    }
+
+    /// -n / -c / -p, then the caret's line centred (Notepad++'s scrollPosToCenter).
+    func place(_ caret: CommandLineOptions.Caret, in tab: EditorTab) {
+        let editor = tab.editor
+        window?.contentView?.layoutSubtreeIfNeeded()  // centring needs the editor's real height (MAC-49)
+        switch caret {
+        case .position(let wanted):
+            var position = min(wanted, editor.send(SCI_GETLENGTH))
+            if position > 0 {
+                // Never inside a multi-byte character or a CR LF pair.
+                position = editor.send(SCI_POSITIONAFTER, editor.send(SCI_POSITIONBEFORE, position))
+            }
+            editor.send(SCI_GOTOPOS, position)
+        case .line(let line, let column?):
+            editor.send(SCI_GOTOPOS, editor.send(SCI_FINDCOLUMN, line - 1, column - 1))
+        case .line(let line, nil):
+            editor.send(SCI_GOTOLINE, line - 1)
+        }
+        let caretLine = editor.send(SCI_VISIBLEFROMDOCLINE, editor.send(SCI_LINEFROMPOSITION, editor.send(SCI_GETCURRENTPOS)))
+        editor.send(SCI_SETFIRSTVISIBLELINE, max(caretLine - editor.send(SCI_LINESONSCREEN) / 2, 0))
+    }
+
     // MARK: - Session
 
     /// The open documents, in tab order. Unsaved "new N" documents have no file to point at, so

@@ -161,7 +161,8 @@ final class PkgScriptTests: XCTestCase {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/sh")
         p.arguments = [scripts.appendingPathComponent(script).path] + args
-        p.environment = ["MACPAD_LAUNCHD_DIR": daemons.path, "MACPAD_LAUNCHCTL": launchctlStub.path, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
+        p.environment = ["MACPAD_LAUNCHD_DIR": daemons.path, "MACPAD_LAUNCHCTL": launchctlStub.path,
+                         "MACPAD_BIN_DIR": root.appendingPathComponent("bin").path, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
         p.standardError = Pipe()
         try p.run()
         p.waitUntilExit()
@@ -219,6 +220,49 @@ final class PkgScriptTests: XCTestCase {
     func testPreinstallStopsTheRunningHelper() throws {
         XCTAssertEqual(try run("preinstall", args: ["p", target.path, "/"]), 0)
         XCTAssertEqual(calls(), ["bootout system/\(label)"])
+    }
+
+    // MARK: MAC-52: /usr/local/bin/macpad
+
+    private var binLink: URL { root.appendingPathComponent("bin/macpad") }
+    private var tool: URL { target.appendingPathComponent("MacPad++.app/Contents/MacOS/macpad") }
+
+    private func installTool() throws {
+        try Data("#!/bin/sh\n".utf8).write(to: tool)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tool.path)
+    }
+
+    func testPostinstallLinksTheCommandLineTool() throws {
+        try installTool()
+        XCTAssertEqual(try run("postinstall", args: ["p", target.path, "/"]), 0)
+        XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: binLink.path), tool.path)
+        XCTAssertEqual(try run("postinstall", args: ["p", target.path, "/"]), 0, "reinstalling keeps it")
+        XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: binLink.path), tool.path)
+    }
+
+    func testPostinstallReplacesAnOlderMacPadLink() throws {
+        try installTool()
+        try FileManager.default.createDirectory(at: binLink.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(atPath: binLink.path, withDestinationPath: "/Volumes/Old/MacPad++.app/Contents/MacOS/macpad")
+        XCTAssertEqual(try run("postinstall", args: ["p", target.path, "/"]), 0)
+        XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: binLink.path), tool.path)
+    }
+
+    func testPostinstallLeavesSomeoneElsesMacpadAlone() throws {
+        try installTool()
+        try FileManager.default.createDirectory(at: binLink.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("mine".utf8).write(to: binLink)
+        XCTAssertEqual(try run("postinstall", args: ["p", target.path, "/"]), 0)
+        XCTAssertEqual(try String(contentsOf: binLink, encoding: .utf8), "mine")
+        try FileManager.default.removeItem(at: binLink)
+        try FileManager.default.createSymbolicLink(atPath: binLink.path, withDestinationPath: "/opt/other/macpad")
+        XCTAssertEqual(try run("postinstall", args: ["p", target.path, "/"]), 0)
+        XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: binLink.path), "/opt/other/macpad")
+    }
+
+    func testPostinstallWithoutTheToolLinksNothing() throws {
+        XCTAssertEqual(try run("postinstall", args: ["p", target.path, "/"]), 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: binLink.path))
     }
 
     func testScriptsAreExecutable() {

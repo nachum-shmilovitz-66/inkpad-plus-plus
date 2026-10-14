@@ -23,8 +23,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Finder "Open With" delivers files before this point. With none, reopen the previous
         // session, and fall back to an empty "new 1" when there is nothing to reopen.
+        // `macpad -nosession` (MAC-52) launches with the option as an argument.
         if mainWindow.openTabs.isEmpty {
-            let restored = SessionStore.load().map { mainWindow.restore($0) } ?? false
+            let restore = Self.shouldRestoreSession(arguments: ProcessInfo.processInfo.arguments)
+            let restored = restore ? SessionStore.load().map { mainWindow.restore($0) } ?? false : false
             if !restored { mainWindow.newTab() }
         }
         mainWindow.showWindow(nil)
@@ -32,9 +34,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    static func shouldRestoreSession(arguments: [String]) -> Bool { !arguments.contains("-nosession") }
+
     func application(_ application: NSApplication, open urls: [URL]) {
-        urls.forEach { mainWindow.open($0) }
+        // The `macpad` tool's options ride on the Open Documents event (MAC-52).
+        let options = CommandLineOptions.from(event: NSAppleEventManager.shared().currentAppleEvent)
         mainWindow.showWindow(nil)
+        mainWindow.open(urls, options: options ?? CommandLineOptions())
     }
 
     func applicationWillTerminate(_ notification: Notification) {
