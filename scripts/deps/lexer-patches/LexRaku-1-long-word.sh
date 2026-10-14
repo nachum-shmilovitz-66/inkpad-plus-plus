@@ -1,0 +1,3 @@
+#!/bin/sh
+# MAC-65 B: LexRaku LengthToNonWordChar writes past the end of s[size].
+perl -0pi -e '$n = s~\tSci_Position len = 0;(\r?\n)\tSci_Position max_length = size < length \? size : length;\r?\n\twhile \(len <= max_length\) \{\r?\n.*?\ts\[len \+ 1\] = \x27\\0\x27;\r?\n~\tSci_Position len = 0;$1\twhile (len <= length) {$1\t\tconst int ch = sc.GetRelativeCharacter(len + offset);$1\t\tif (!IsWordChar(ch)) break;$1\t\tif (len < size - 1) s[len] = static_cast<char>(ch);$1\t\tlen++;$1\t}$1\ts[len < size - 1 ? len : size - 1] = \x27\\0\x27;$1~gs; $n ||= 0; die "LexRaku: expected 1 match, got $n\n" unless $n == 1' "$1"

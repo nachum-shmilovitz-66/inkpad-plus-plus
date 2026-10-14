@@ -95,7 +95,23 @@ CXXFLAGS=(-target $TARGET -std=c++17 -O2 -fPIC -DNDEBUG $HARDEN
   -I"$LEX/include" -I"$LEX/lexlib" -I"$NPP/scintilla/include" -I"$OBJ/shim"
   -Wno-deprecated-declarations)
 
-srcs=("$LEX"/lexers/*.cxx(N) "$LEX"/lexlib/*.cxx(N) "$LEX/src/Lexilla.cxx")
+# MAC-65: lexers with bugs the MAC-25 fuzzing found (Raku stack overflow on a long word, Perl
+# endless loop on a NUL in a here-doc, Perl here-doc delimiter overflow — all unfixed upstream)
+# are compiled from patched copies; vendor/ stays pristine. scripts/deps/lexer-patches/<Lexer>-*.sh
+# each patch one copy and fail unless their change applies exactly once.
+PATCHED=$OBJ/patched
+rm -rf "$PATCHED"; mkdir -p "$PATCHED"
+patched_names=()
+for patch in "$ROOT"/scripts/deps/lexer-patches/*.sh(N); do
+  name=${${patch:t}%%-*}
+  [[ -f $PATCHED/$name.cxx ]] || { cp "$LEX/lexers/$name.cxx" "$PATCHED/$name.cxx"; patched_names+=$name; }
+  sh "$patch" "$PATCHED/$name.cxx"
+done
+srcs=()
+for src in "$LEX"/lexers/*.cxx(N); do
+  (( ${patched_names[(Ie)${src:t:r}]} )) || srcs+=$src
+done
+srcs+=("$PATCHED"/*.cxx(N) "$LEX"/lexlib/*.cxx(N) "$LEX/src/Lexilla.cxx")
 objs=() stale=()
 for src in $srcs; do
   o=$OBJ/${src:h:t}_${src:t:r}.o
