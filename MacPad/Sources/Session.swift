@@ -44,14 +44,37 @@ struct SessionState: Codable, Equatable {
     static let currentVersion = 1
 
     var version: Int = SessionState.currentVersion
+    /// The main view's documents (Notepad++'s <mainView>).
     var documents: [Document] = []
     var activeIndex: Int = 0
+    /// The other view's (MAC-47, Notepad++'s <subView>). A document in both is a clone.
+    var subDocuments: [Document] = []
+    var subActiveIndex: Int = 0
+    /// 0 = the main view had the focus, 1 = the other view.
+    var activeView: Int = 0
 
-    var isEmpty: Bool { documents.isEmpty }
+    var isEmpty: Bool { documents.isEmpty && subDocuments.isEmpty }
 
-    init(documents: [Document] = [], activeIndex: Int = 0) {
+    init(documents: [Document] = [], activeIndex: Int = 0,
+         subDocuments: [Document] = [], subActiveIndex: Int = 0, activeView: Int = 0) {
         self.documents = documents
         self.activeIndex = activeIndex
+        self.subDocuments = subDocuments
+        self.subActiveIndex = subActiveIndex
+        self.activeView = activeView
+    }
+
+    private enum CodingKeys: String, CodingKey { case version, documents, activeIndex, subDocuments, subActiveIndex, activeView }
+
+    /// Sessions written before the split view have no other view: read it as empty.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        version = try c.decode(Int.self, forKey: .version)
+        documents = try c.decode([Document].self, forKey: .documents)
+        activeIndex = try c.decode(Int.self, forKey: .activeIndex)
+        subDocuments = try c.decodeIfPresent([Document].self, forKey: .subDocuments) ?? []
+        subActiveIndex = try c.decodeIfPresent(Int.self, forKey: .subActiveIndex) ?? 0
+        activeView = try c.decodeIfPresent(Int.self, forKey: .activeView) ?? 0
     }
 
     /// Returns nil for anything that is not a session this build understands, so a corrupt or
@@ -73,16 +96,19 @@ struct SessionState: Codable, Equatable {
     /// previously active document active when it survived, and otherwise landing as close to it
     /// as the remaining documents allow.
     func filtered(exists: (String) -> Bool) -> SessionState {
+        let main = Self.filter(documents, active: activeIndex, exists: exists)
+        let sub = Self.filter(subDocuments, active: subActiveIndex, exists: exists)
+        let view = activeView == 1 && !sub.documents.isEmpty ? 1 : 0
+        return SessionState(documents: main.documents, activeIndex: main.active,
+                            subDocuments: sub.documents, subActiveIndex: sub.active, activeView: view)
+    }
+
+    private static func filter(_ documents: [Document], active: Int, exists: (String) -> Bool) -> (documents: [Document], active: Int) {
         let surviving = documents.enumerated().filter { exists($0.element.path) }
-        guard !surviving.isEmpty else { return SessionState() }
-        let newActive: Int
-        if let kept = surviving.firstIndex(where: { $0.offset == activeIndex }) {
-            newActive = kept
-        } else {
-            let before = surviving.filter { $0.offset < activeIndex }.count
-            newActive = min(before, surviving.count - 1)
-        }
-        return SessionState(documents: surviving.map(\.element), activeIndex: newActive)
+        guard !surviving.isEmpty else { return ([], 0) }
+        if let kept = surviving.firstIndex(where: { $0.offset == active }) { return (surviving.map(\.element), kept) }
+        let before = surviving.filter { $0.offset < active }.count
+        return (surviving.map(\.element), min(before, surviving.count - 1))
     }
 }
 

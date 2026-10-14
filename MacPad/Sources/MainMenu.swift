@@ -388,6 +388,15 @@ enum MainMenu {
         menu.addItem(item("Document Map", #selector(MainWindowController.toggleDocumentMap(_:))))
         menu.addItem(item("Function List", #selector(MainWindowController.toggleFunctionList(_:))))
         menu.addItem(.separator())
+        // Notepad++'s two views (MAC-47).
+        let moveClone = NSMenu(title: "Move/Clone Current Document")
+        moveClone.addItem(item("Move to Other View", #selector(MainWindowController.moveToOtherView(_:))))
+        moveClone.addItem(item("Clone to Other View", #selector(MainWindowController.cloneToOtherView(_:))))
+        menu.addItem(submenu(moveClone))
+        menu.addItem(item("Switch to Other View", #selector(MainWindowController.switchToOtherView(_:))))
+        menu.addItem(item("Synchronize Vertical Scrolling", #selector(MainWindowController.toggleSyncVerticalScrolling(_:))))
+        menu.addItem(item("Synchronize Horizontal Scrolling", #selector(MainWindowController.toggleSyncHorizontalScrolling(_:))))
+        menu.addItem(.separator())
         menu.addItem(item("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]))
         return menu
     }

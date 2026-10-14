@@ -34,7 +34,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
 
     /// Edit › Read-Only in MacPad++ › Read-Only on Current Document (Notepad++'s user read-only).
     var isUserReadOnly = false {
-        didSet { applyReadOnly(); onChange?() }
+        didSet { if oldValue != isUserReadOnly { applyReadOnly(); changed() } }
     }
     /// The file is locked on disk (Finder's "Locked", the Mac's counterpart of Windows' read-only attribute).
     private(set) var isFileLocked = false
@@ -51,7 +51,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         try url.setResourceValues(values)
         isFileLocked = locked
         applyReadOnly()
-        onChange?()
+        changed()
     }
 
     private func refreshFileLock() {
@@ -76,6 +76,67 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
     /// Deleted on disk and kept in the editor: unsaved until written back.
     private var isMissingOnDisk = false
 
+    // MARK: - Split view (MAC-47)
+
+    /// The same document in the other view. Scintilla's document holds the text, the undo history,
+    /// the dirty state, the line endings and the read-only flag, so those are shared; the file's
+    /// bookkeeping (path, encoding, language, lock) is copied across on every change. Only the tab
+    /// that owns the document watches the file and writes it.
+    weak var twin: EditorTab?
+    /// A clone made with Clone to Other View, while the tab it was cloned from is open.
+    private(set) var isClone = false
+    /// The tab that saves and watches the file: the clone's original, or the tab itself.
+    var documentOwner: EditorTab { isClone ? (twin ?? self) : self }
+    /// Focus came to this tab's editor.
+    var onFocus: (() -> Void)?
+    /// The editor scrolled (Synchronize Vertical / Horizontal Scrolling).
+    var onScroll: (() -> Void)?
+    private var isAdopting = false
+
+    /// Notepad++'s Clone to Other View: a second view of `source`'s document.
+    convenience init(cloneOf source: EditorTab) {
+        self.init(untitledNumber: source.untitledNumber)
+        editor.send(SCI_SETDOCPOINTER, 0, source.editor.send(SCI_GETDOCPOINTER))
+        isClone = true
+        twin = source
+        source.twin = self
+        adoptDocumentState(from: source)
+        applyLanguage(source.language)
+        EditorStyler.updateLineNumberWidth(editor)
+    }
+
+    /// The original closed: this tab now owns the document, and watches its file.
+    func becomeOwner() {
+        twin = nil
+        guard isClone else { return }
+        isClone = false
+        startDiskWatch()
+    }
+
+    /// Takes the file's bookkeeping from the twin; the text itself is already shared.
+    func adoptDocumentState(from other: EditorTab) {
+        // Caret moves call this too: nothing to copy, nothing to redraw.
+        guard fileURL != other.fileURL || format != other.format || isMissingOnDisk != other.isMissingOnDisk
+                || isFileLocked != other.isFileLocked || isLanguageChosenByUser != other.isLanguageChosenByUser
+                || isUserReadOnly != other.isUserReadOnly || language.name != other.language.name else { return }
+        isAdopting = true
+        defer { isAdopting = false }
+        fileURL = other.fileURL
+        format = other.format
+        isMissingOnDisk = other.isMissingOnDisk
+        isFileLocked = other.isFileLocked
+        isLanguageChosenByUser = other.isLanguageChosenByUser
+        if isUserReadOnly != other.isUserReadOnly { isUserReadOnly = other.isUserReadOnly }
+        if language.name != other.language.name { applyLanguage(other.language) }
+        onChange?()
+    }
+
+    /// Something the host shows changed; the twin follows.
+    private func changed() {
+        if !isAdopting { twin?.adoptDocumentState(from: self) }
+        onChange?()
+    }
+
     init(untitledNumber: Int) {
         self.untitledNumber = untitledNumber
         editor = ScintillaView(frame: NSRect(x: 0, y: 0, width: 900, height: 640))
@@ -91,6 +152,9 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
     }
 
     func detach() {
+        twin = nil
+        onFocus = nil
+        onScroll = nil
         stopMonitoring()
         stopDiskWatch()
         onExternalChange = nil
@@ -120,7 +184,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         applyLanguage(Self.language(for: url, content: data))
         AppEnvironment.noteRecentDocument(url)
         RecentFilesStore.shared.record(url)
-        onChange?()
+        changed()
     }
 
     /// The extension or file name first; for a plain-text result, the first line (MAC-11:
@@ -239,13 +303,14 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         }
         AppEnvironment.noteRecentDocument(url)
         RecentFilesStore.shared.record(url)
-        onChange?()
+        changed()
     }
 
     /// Saves, asking for a location if the document is untitled. Calls back with success.
     func save(completion: ((Bool) -> Void)? = nil) {
         // A monitored file belongs to the program writing it: never write over it (nor its
         // freshly appended lines). The buffer is read-only and always matches the disk anyway.
+        if isClone, let twin { twin.save(completion: completion); return }  // the owner writes
         if isMonitoring { completion?(true); return }
         if let url = fileURL {
             // Always write, whether or not anyone wants the result (MAC-18).
@@ -256,6 +321,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
     }
 
     func saveAs(completion: ((Bool) -> Void)? = nil) {
+        if isClone, let twin { twin.saveAs(completion: completion); return }
         if isMonitoring { completion?(false); return }
         let panel = NSSavePanel()
         panel.nameFieldStringValue = fileURL?.lastPathComponent ?? displayName
@@ -302,7 +368,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
     func convertEncoding(to target: TextEncoding) throws {
         guard target != encoding, !isMonitoring else { return }
         try format.convert(editor.utf8Bytes(), to: target)
-        onChange?()
+        changed()
     }
 
     /// Notepad++'s EOL Conversion: rewrites every line ending as one undoable edit and makes
@@ -312,7 +378,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         editor.send(SCI_SETEOLMODE, target.rawValue)
         let old = editor.utf8Bytes()
         let new = LineEnding.convert(old, to: target)
-        guard new != old else { onChange?(); return }
+        guard new != old else { changed(); return }
 
         let pos = editor.send(SCI_GETCURRENTPOS)
         let line = editor.send(SCI_LINEFROMPOSITION, pos)
@@ -328,7 +394,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
 
         editor.send(SCI_GOTOPOS, editor.send(SCI_FINDCOLUMN, line, column))
         editor.send(SCI_SETFIRSTVISIBLELINE, firstVisible)
-        onChange?()
+        changed()
     }
 
     // MARK: - Monitoring (tail -f)
@@ -352,7 +418,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         let watcher = FileWatcher(path: url.path, pollInterval: pollInterval) { [weak self] in self?.checkMonitoredFile() }
         watcher.start()
         self.watcher = watcher
-        onChange?()
+        changed()
     }
 
     func stopMonitoring() {
@@ -364,7 +430,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         isMonitoring = false
         applyReadOnly()
         startDiskWatch()
-        onChange?()
+        changed()
     }
 
     enum MonitoringError: LocalizedError {
@@ -397,7 +463,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         decoder = IncrementalDecoder(encoding: loaded.encoding)
         snapshot = FileSnapshot.of(path: url.path).map { FileSnapshot(inode: $0.inode, size: UInt64(data.count), modified: $0.modified) }
         editor.send(SCI_DOCUMENTEND)
-        onChange?()
+        changed()
     }
 
     /// Appends the bytes the file gained since `offset`, keeping the view on the end only if the
@@ -420,7 +486,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
             }
         }
         if following { editor.send(SCI_DOCUMENTEND) }
-        onChange?()
+        changed()
     }
 
     /// Changes the text of the read-only monitored buffer without it counting as an edit:
@@ -437,7 +503,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
 
     private func startDiskWatch(pollInterval: TimeInterval = 2.0) {
         stopDiskWatch()
-        guard let url = fileURL, !isMonitoring else { return }
+        guard let url = fileURL, !isMonitoring, !isClone else { return }
         diskSnapshot = FileSnapshot.of(path: url.path)
         let watcher = FileWatcher(path: url.path, pollInterval: pollInterval) { [weak self] in self?.checkDiskState() }
         watcher.start()
@@ -480,7 +546,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
             break
         }
         diskSnapshot = fileURL.flatMap { FileSnapshot.of(path: $0.path) }
-        onChange?()
+        changed()
     }
 
     /// Reads the file again, keeping the caret's line and column and the scroll position.
@@ -505,7 +571,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         editor.send(SCI_GOTOPOS, editor.send(SCI_FINDCOLUMN, min(line, lastLine), column))
         editor.send(SCI_SETFIRSTVISIBLELINE, firstVisible)
         diskSnapshot = FileSnapshot.of(path: url.path)
-        onChange?()
+        changed()
     }
 
     // MARK: - Editor state
@@ -549,7 +615,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         isLanguageChosenByUser = true
         guard info.name != language.name else { return }
         applyLanguage(info)
-        onChange?()
+        changed()
     }
 
     private func applyLanguage(_ info: LanguageInfo) {
@@ -563,13 +629,16 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         let n = notification.pointee
         switch Int32(n.nmhdr.code) {
         case SCN_SAVEPOINTLEFT, SCN_SAVEPOINTREACHED:
-            onChange?()
+            changed()
         case SCN_UPDATEUI:
             EditorStyler.updateBraceMatch(editor)
             if Int(n.updated) & Int(SC_UPDATE_V_SCROLL) != 0 && Preferences.current.lineNumberDynamicWidth {
                 EditorStyler.updateLineNumberWidth(editor)  // Dynamic width follows the last line on screen
             }
-            onChange?()
+            if Int(n.updated) & Int(SC_UPDATE_V_SCROLL | SC_UPDATE_H_SCROLL) != 0 { onScroll?() }
+            changed()
+        case SCN_FOCUSIN:
+            onFocus?()
         case SCN_MODIFIED:
             if n.linesAdded != 0 { EditorStyler.updateLineNumberWidth(editor) }
             if Int(n.modificationType) & Int(SC_MOD_INSERTTEXT | SC_MOD_DELETETEXT) != 0 { onTextModified?() }

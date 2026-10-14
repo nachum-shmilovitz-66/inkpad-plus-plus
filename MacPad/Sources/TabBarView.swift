@@ -7,6 +7,8 @@ final class TabBarView: NSView {
 
     var onSelect: ((Int) -> Void)?
     var onClose: ((Int) -> Void)?
+    /// The tab's context menu (Close, Move / Clone to Other View).
+    var onMenu: ((Int) -> NSMenu?)?
 
     private let scroll = NSScrollView()
     private let stack = NSStackView()
@@ -48,13 +50,16 @@ final class TabBarView: NSView {
 
     /// Rebuilds the strip. Called whenever a tab is added, closed, renamed or made active —
     /// cheap at the tab counts a text editor sees, and it keeps the view free of stale state.
-    func reload(tabs: [(label: String, toolTip: String?)], activeIndex: Int?) {
+    /// `isFocusedView`: with two views, the other view's active tab is drawn without the accent
+    /// colour, as Notepad++ greys the unfocused view's tab.
+    func reload(tabs: [(label: String, toolTip: String?)], activeIndex: Int?, isFocusedView: Bool = true) {
         stack.views.forEach { $0.removeFromSuperview() }
         for (index, tab) in tabs.enumerated() {
-            let item = TabItemView(index: index, label: tab.label, isActive: index == activeIndex)
+            let item = TabItemView(index: index, label: tab.label, isActive: index == activeIndex, isFocusedView: isFocusedView)
             item.toolTip = tab.toolTip
             item.onSelect = { [weak self] in self?.onSelect?($0) }
             item.onClose = { [weak self] in self?.onClose?($0) }
+            item.onMenu = { [weak self] in self?.onMenu?($0) }
             stack.addView(item, in: .leading)
         }
         if let activeIndex, stack.views.indices.contains(activeIndex) {
@@ -68,15 +73,18 @@ final class TabBarView: NSView {
 private final class TabItemView: NSView {
     private let index: Int
     private let isActive: Bool
+    private let isFocusedView: Bool
     private let title: NSTextField
     private let close = NSButton()
 
     var onSelect: ((Int) -> Void)?
     var onClose: ((Int) -> Void)?
+    var onMenu: ((Int) -> NSMenu?)?
 
-    init(index: Int, label: String, isActive: Bool) {
+    init(index: Int, label: String, isActive: Bool, isFocusedView: Bool) {
         self.index = index
         self.isActive = isActive
+        self.isFocusedView = isFocusedView
         title = NSTextField(labelWithString: label)
         super.init(frame: .zero)
 
@@ -118,7 +126,7 @@ private final class TabItemView: NSView {
         NSColor.separatorColor.setFill()
         NSRect(x: bounds.maxX - 1, y: 3, width: 1, height: bounds.height - 6).fill()
         if isActive {
-            NSColor.controlAccentColor.setFill()
+            (isFocusedView ? NSColor.controlAccentColor : NSColor.tertiaryLabelColor).setFill()
             NSRect(x: 0, y: bounds.maxY - 2, width: bounds.width, height: 2).fill()
         }
     }
@@ -126,6 +134,8 @@ private final class TabItemView: NSView {
     override func mouseDown(with event: NSEvent) {
         onSelect?(index)
     }
+
+    override func menu(for event: NSEvent) -> NSMenu? { onMenu?(index) }
 
     @objc private func closeClicked() {
         onClose?(index)

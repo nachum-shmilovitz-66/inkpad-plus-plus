@@ -4,13 +4,23 @@ import AppKit
 /// Notepad++ keeps every open file in one window, so this controller owns the tab list and the
 /// documents in it.
 final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuItemValidation {
-    private var tabs = TabList<EditorTab>()
+    /// Notepad++'s two views (MAC-47): 0 is the main view, 1 the other view, shown beside it
+    /// while it has documents.
+    let panes = [EditorPane(), EditorPane()]
+    /// The view with the focus: menus and the status bar act on its active document.
+    private(set) var activeView = 0
+    private var tabs: TabList<EditorTab> {
+        get { panes[activeView].tabs }
+        set { panes[activeView].tabs = newValue }
+    }
+    /// The two views side by side.
+    private let editorSplit = NSSplitView()
+    private(set) var scrollSync = ScrollSync()
+    private var isSyncingScroll = false
     private var nextUntitledNumber = 1
     /// Suppresses session writes while the session itself is being reopened.
     private var isRestoring = false
 
-    private let tabBar = TabBarView()
-    private let editorContainer = NSView()
     private let statusBar = StatusBar()
     /// The editor above, Notepad++'s "Search results" panel docked below (MAC-32).
     private let splitView = NSSplitView()
@@ -25,8 +35,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     let incrementalBar = IncrementalSearchBar()
 
     var activeTab: EditorTab? { tabs.active }
-    var hasDirtyTabs: Bool { tabs.items.contains(where: \.isModified) }
-    var openTabs: [EditorTab] { tabs.items }
+    /// Every tab in both views; a cloned document is in it twice.
+    var openTabs: [EditorTab] { panes.flatMap(\.tabs.items) }
+    /// One tab per open document: clones left out.
+    var openDocuments: [EditorTab] { openTabs.filter { !$0.isClone } }
+    var hasDirtyTabs: Bool { openDocuments.contains(where: \.isModified) }
 
     init() {
         let window = NSWindow(
@@ -39,12 +52,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         window.tabbingMode = .disallowed  // the document tabs are MacPad++'s own, not macOS window tabs
         super.init(window: window)
 
-        tabBar.translatesAutoresizingMaskIntoConstraints = false
         splitView.translatesAutoresizingMaskIntoConstraints = false
         statusBar.translatesAutoresizingMaskIntoConstraints = false
         splitView.isVertical = false
         splitView.dividerStyle = .thin
-        splitView.addArrangedSubview(editorContainer)
+        editorSplit.isVertical = true
+        editorSplit.dividerStyle = .thin
+        panes.forEach { editorSplit.addArrangedSubview($0.view) }
+        panes[1].view.isHidden = true
+        splitView.addArrangedSubview(editorSplit)
         splitView.addArrangedSubview(searchResults)
         splitView.setHoldingPriority(.defaultLow - 1, forSubviewAt: 0)
         splitView.setHoldingPriority(.defaultLow + 1, forSubviewAt: 1)
@@ -61,13 +77,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         // Docked panels beside the documents, as Notepad++ docks them (milestone 6): Folder as
         // Workspace on the left, Function List and Document Map on the right.
         let center = NSView()
-        center.addSubview(tabBar)
         center.addSubview(column)
         NSLayoutConstraint.activate([
-            tabBar.topAnchor.constraint(equalTo: center.topAnchor),
-            tabBar.leadingAnchor.constraint(equalTo: center.leadingAnchor),
-            tabBar.trailingAnchor.constraint(equalTo: center.trailingAnchor),
-            column.topAnchor.constraint(equalTo: tabBar.bottomAnchor),
+            column.topAnchor.constraint(equalTo: center.topAnchor),
             column.leadingAnchor.constraint(equalTo: center.leadingAnchor),
             column.trailingAnchor.constraint(equalTo: center.trailingAnchor),
             column.bottomAnchor.constraint(equalTo: center.bottomAnchor),
@@ -117,8 +129,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         preferencesObserver = NotificationCenter.default.addObserver(forName: Preferences.didChange, object: nil, queue: .main) { [weak self] _ in
             self?.applyTheme()
         }
-        tabBar.onSelect = { [weak self] index in self?.selectTab(at: index) }
-        tabBar.onClose = { [weak self] index in self?.closeTab(at: index) }
+        for (view, pane) in panes.enumerated() {
+            pane.tabBar.onSelect = { [weak self] index in self?.selectTab(at: index, inView: view) }
+            pane.tabBar.onClose = { [weak self] index in self?.closeTab(at: index, inView: view) }
+            pane.tabBar.onMenu = { [weak self] index in self?.tabMenu(at: index, inView: view) }
+        }
         statusBar.onEncodingClick = { [weak self] label in self?.showEncodingMenu(at: label) }
         statusBar.onLanguageClick = { [weak self] label in self?.showLanguageMenu(at: label) }
         statusBar.onLineEndingClick = { [weak self] label in self?.showLineEndingMenu(at: label) }
@@ -141,11 +156,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// tab when there is one — both as Notepad++ does.
     func open(_ url: URL) {
         let standardized = url.standardizedFileURL
-        if let existing = tabs.firstIndex(where: { $0.fileURL?.standardizedFileURL == standardized }) {
-            selectTab(at: existing)
-            return
+        for view in [activeView, 1 - activeView] {
+            if let existing = panes[view].tabs.firstIndex(where: { $0.fileURL?.standardizedFileURL == standardized }) {
+                selectTab(at: existing, inView: view)
+                return
+            }
         }
-        let reusableIndex = tabs.firstIndex(where: \.isPristineUntitled)
+        let reusableIndex = tabs.firstIndex(where: { $0.isPristineUntitled && $0.twin == nil })
         let tab = reusableIndex.map { tabs[$0] } ?? EditorTab(untitledNumber: nextUntitledNumber)
         if reusableIndex == nil { nextUntitledNumber += 1 }
         tab.hostWindow = window
@@ -168,6 +185,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// The open documents, in tab order. Unsaved "new N" documents have no file to point at, so
     /// they are left out rather than restored empty.
     func captureSession() -> SessionState {
+        let main = Self.sessionDocuments(panes[0].tabs), sub = Self.sessionDocuments(panes[1].tabs)
+        return SessionState(documents: main.documents, activeIndex: main.active,
+                            subDocuments: sub.documents, subActiveIndex: sub.active,
+                            activeView: sub.documents.isEmpty ? 0 : activeView)
+    }
+
+    private static func sessionDocuments(_ tabs: TabList<EditorTab>) -> (documents: [SessionState.Document], active: Int) {
         var active = 0
         var documents: [SessionState.Document] = []
         for (index, tab) in tabs.items.enumerated() {
@@ -181,7 +205,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                 bookmarks: tab.bookmarks,
                 language: tab.language.name))
         }
-        return SessionState(documents: documents, activeIndex: active)
+        return (documents, active)
     }
 
     /// Reopens a stored session. Returns false when nothing could be reopened, so the caller can
@@ -192,7 +216,28 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         guard !state.isEmpty else { return false }
         isRestoring = true
         defer { isRestoring = false }
-        for document in state.documents {
+        restoreDocuments(state.documents, inView: 0)
+        restoreDocuments(state.subDocuments, inView: 1)
+        guard !openTabs.isEmpty else { return false }
+        panes[0].tabs.select(min(state.activeIndex, panes[0].tabs.count - 1))
+        panes[1].tabs.select(min(state.subActiveIndex, panes[1].tabs.count - 1))
+        activeView = panes[1].tabs.isEmpty ? 0 : state.activeView
+        normalizeViews()
+        refresh()
+        return true
+    }
+
+    private func restoreDocuments(_ documents: [SessionState.Document], inView view: Int) {
+        for document in documents {
+            // A document in both views: the other view's copy is a clone of the main view's.
+            if view == 1, let original = panes[0].tabs.items.first(where: {
+                $0.twin == nil && $0.fileURL?.standardizedFileURL.path == document.path
+            }) {
+                let clone = EditorTab(cloneOf: original)
+                add(clone, toView: 1)
+                clone.restoreViewport(caretPosition: document.caretPosition, firstVisibleLine: document.firstVisibleLine)
+                continue
+            }
             let tab = EditorTab(untitledNumber: nextUntitledNumber)
             nextUntitledNumber += 1
             tab.hostWindow = window
@@ -202,7 +247,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                 NSLog("MacPad++: skipping \(document.path) from the session: \(error.localizedDescription)")
                 continue
             }
-            add(tab)
+            add(tab, toView: view)
             tab.bookmarks = document.bookmarks
             if let name = document.language, let info = LanguageCatalog.shared.language(named: name) { tab.setLanguage(info) }
             if document.isMonitoring {
@@ -212,10 +257,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                                     firstVisibleLine: document.firstVisibleLine)
             }
         }
-        guard !tabs.isEmpty else { return false }
-        tabs.select(min(state.activeIndex, tabs.count - 1))
-        refresh()
-        return true
     }
 
     /// Written whenever the set of open documents changes, so a crash or a forced quit still
@@ -225,7 +266,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         SessionStore.save(captureSession())
     }
 
-    private func add(_ tab: EditorTab) {
+    /// Adds a tab to a view (the focused one by default) and focuses it there.
+    private func add(_ tab: EditorTab, toView view: Int? = nil) {
+        let view = view ?? activeView
         tab.hostWindow = window
         MacroRecorder.shared.attach(tab.editor)
         tab.onChange = { [weak self] in self?.refresh() }
@@ -233,22 +276,20 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         tab.onTextModified = { [weak self, weak tab] in
             if let self, tab === self.activeTab { self.incrementalBar.resetCount() }
         }
-        tab.editor.isHidden = true
-        editorContainer.addSubview(tab.editor)
-        NSLayoutConstraint.activate([
-            tab.editor.topAnchor.constraint(equalTo: editorContainer.topAnchor),
-            tab.editor.leadingAnchor.constraint(equalTo: editorContainer.leadingAnchor),
-            tab.editor.trailingAnchor.constraint(equalTo: editorContainer.trailingAnchor),
-            tab.editor.bottomAnchor.constraint(equalTo: editorContainer.bottomAnchor),
-        ])
-        tabs.append(tab)
+        tab.onFocus = { [weak self, weak tab] in if let self, let tab { self.editorDidGainFocus(tab) } }
+        tab.onScroll = { [weak self, weak tab] in if let self, let tab { self.syncScroll(from: tab) } }
+        panes[view].host(tab.editor)
+        panes[view].tabs.append(tab)
+        activeView = view
+        normalizeViews()
         refresh()
         persistSession()
     }
 
     // MARK: - Tab commands
 
-    func selectTab(at index: Int) {
+    func selectTab(at index: Int, inView view: Int? = nil) {
+        if let view { activeView = view }
         tabs.select(index)
         incrementalBar.resetCount()
         refresh()
@@ -257,19 +298,37 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     /// Closes a tab, asking about unsaved changes first. Closing the last tab leaves a fresh
     /// "new N" document behind rather than an empty window, as Notepad++ does.
-    func closeTab(at index: Int) {
-        guard tabs.items.indices.contains(index) else { return }
-        let tab = tabs[index]
+    func closeTab(at index: Int, inView view: Int? = nil) {
+        let pane = panes[view ?? activeView]
+        guard pane.tabs.items.indices.contains(index) else { return }
+        let tab = pane.tabs[index]
+        // Still open in the other view: nothing is lost, so nothing to ask (as in Notepad++).
+        if tab.twin != nil { removeTab(tab); return }
         tab.confirmDiscard { [weak self] discard in
             guard let self, discard else { return }
-            guard let current = self.tabs.firstIndex(where: { $0 === tab }) else { return }
-            self.tabs.remove(at: current)
-            tab.editor.removeFromSuperview()
-            tab.detach()
-            if self.tabs.isEmpty { self.newTab() } else { self.refresh() }
-            self.persistSession()
+            self.removeTab(tab)
         }
     }
+
+    /// Takes a tab out of its view. Its clone, if any, becomes the document's owner.
+    private func removeTab(_ tab: EditorTab) {
+        guard let view = self.view(of: tab), let index = panes[view].index(of: tab) else { return }
+        panes[view].tabs.remove(at: index)
+        tab.editor.removeFromSuperview()
+        tab.twin?.becomeOwner()
+        tab.detach()
+        if openTabs.isEmpty {
+            activeView = 0
+            newTab()
+        } else {
+            normalizeViews()
+            refresh()
+        }
+        persistSession()
+    }
+
+    /// The view a tab is in.
+    func view(of tab: EditorTab) -> Int? { panes.firstIndex { $0.contains(tab) } }
 
     @IBAction func newDocument(_ sender: Any?) { newTab() }
 
@@ -366,7 +425,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// View › Monitoring (tail -f). Unsaved edits are saved first (after asking), since the
     /// monitored tab shows the file exactly as it is on disk.
     @IBAction func toggleMonitoring(_ sender: Any?) {
-        guard let tab = activeTab, tab.fileURL != nil else { return }
+        guard let tab = activeTab, tab.fileURL != nil, tab.twin == nil || tab.isMonitoring else { return }
         if tab.isMonitoring {
             tab.stopMonitoring()
             persistSession()
@@ -440,8 +499,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         case 0: return activeTab.map(path)
         case 1: return activeTab.map(name)
         case 2: return activeTab.map { $0.fileURL?.deletingLastPathComponent().path ?? "" }
-        case 3: return tabs.items.map { name($0) + "\r\n" }.joined()
-        case 4: return tabs.items.map { path($0) + "\r\n" }.joined()
+        case 3: return openDocuments.map { name($0) + "\r\n" }.joined()
+        case 4: return openDocuments.map { path($0) + "\r\n" }.joined()
         default: return nil
         }
     }
@@ -449,8 +508,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     @IBAction func readOnlyCommand(_ sender: Any?) {
         switch (sender as? NSMenuItem)?.tag {
         case 0: activeTab.map { $0.isUserReadOnly.toggle() }
-        case 1: tabs.items.forEach { $0.isUserReadOnly = true }
-        case 2: tabs.items.forEach { $0.isUserReadOnly = false }
+        case 1: openDocuments.forEach { $0.isUserReadOnly = true }
+        case 2: openDocuments.forEach { $0.isUserReadOnly = false }
         default: break
         }
         refresh()
@@ -689,11 +748,133 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     func isPanelVisible(_ panel: NSView) -> Bool { panel.superview != nil && !panel.isHidden }
 
+    // MARK: - Split view (MAC-47)
+
+    /// The main view never stands empty: when it empties, the other view's documents take its
+    /// place. The other view shows only while it has documents, as Notepad++ hides an empty view.
+    private func normalizeViews() {
+        if panes[0].tabs.isEmpty && !panes[1].tabs.isEmpty {
+            panes[0].tabs = panes[1].tabs
+            panes[1].tabs = TabList()
+            panes[0].tabs.items.forEach { panes[0].host($0.editor) }
+        }
+        if panes[1].tabs.isEmpty { activeView = 0 }
+        let showOther = !panes[1].tabs.isEmpty
+        guard showOther == panes[1].view.isHidden else { return }
+        panes[1].view.isHidden = !showOther
+        editorSplit.adjustSubviews()
+        if showOther {
+            window?.contentView?.layoutSubtreeIfNeeded()
+            editorSplit.setPosition((editorSplit.bounds.width / 2).rounded(), ofDividerAt: 0)
+        }
+    }
+
+    var isOtherViewVisible: Bool { !panes[1].view.isHidden }
+
+    /// View › Move/Clone Current Document › Move to Other View. A document the other view already
+    /// shows (a clone) just closes here and is focused there.
+    @IBAction func moveToOtherView(_ sender: Any?) {
+        guard let tab = activeTab, let index = tabs.activeIndex else { return }
+        if let twin = tab.twin {
+            removeTab(tab)
+            focus(twin)
+            return
+        }
+        let target = 1 - activeView
+        tabs.remove(at: index)
+        panes[target].host(tab.editor)
+        panes[target].tabs.append(tab)
+        activeView = target
+        normalizeViews()
+        incrementalBar.resetCount()
+        refresh()
+        persistSession()
+    }
+
+    /// View › Move/Clone Current Document › Clone to Other View: a second editor on the same
+    /// document. Edits, undo and saving are shared; caret and scrolling are each view's own.
+    @IBAction func cloneToOtherView(_ sender: Any?) {
+        guard let tab = activeTab else { return }
+        if let twin = tab.twin { focus(twin); return }
+        guard !tab.isMonitoring else { NSSound.beep(); return }
+        let clone = EditorTab(cloneOf: tab)
+        add(clone, toView: 1 - activeView)
+        clone.restoreViewport(caretPosition: tab.caretPosition, firstVisibleLine: tab.firstVisibleLine)
+    }
+
+    /// Notepad++'s "Switch to another view": the other view's document takes the focus.
+    @IBAction func switchToOtherView(_ sender: Any?) {
+        guard !panes[1 - activeView].tabs.isEmpty else { NSSound.beep(); return }
+        activeView = 1 - activeView
+        incrementalBar.resetCount()
+        refresh()
+    }
+
+    private func focus(_ tab: EditorTab) {
+        guard let view = view(of: tab), let index = panes[view].index(of: tab) else { return }
+        selectTab(at: index, inView: view)
+    }
+
+    /// A click in the other view's editor moves the focus there.
+    func editorDidGainFocus(_ tab: EditorTab) {
+        guard let view = view(of: tab), view != activeView, panes[view].tabs.active === tab else { return }
+        activeView = view
+        incrementalBar.resetCount()
+        refresh()
+    }
+
+    /// The tab's context menu: Close, Move / Clone to Other View, Copy path / name.
+    private func tabMenu(at index: Int, inView view: Int) -> NSMenu {
+        selectTab(at: index, inView: view)
+        let menu = NSMenu()
+        func add(_ title: String, _ action: Selector, tag: Int = 0) {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = self
+            item.tag = tag
+            menu.addItem(item)
+        }
+        add("Close", #selector(closeTab(_:)))
+        menu.addItem(.separator())
+        add("Move to Other View", #selector(moveToOtherView(_:)))
+        add("Clone to Other View", #selector(cloneToOtherView(_:)))
+        menu.addItem(.separator())
+        add("Copy Full File Path", #selector(copyPathToClipboard(_:)), tag: 0)
+        add("Copy Filename", #selector(copyPathToClipboard(_:)), tag: 1)
+        return menu
+    }
+
+    @IBAction func toggleSyncVerticalScrolling(_ sender: Any?) {
+        scrollSync.vertical.toggle()
+        if scrollSync.vertical, let main = panes[0].tabs.active?.editor, let other = panes[1].tabs.active?.editor {
+            scrollSync.lineOffset = other.send(SCI_GETFIRSTVISIBLELINE) - main.send(SCI_GETFIRSTVISIBLELINE)
+        }
+    }
+
+    @IBAction func toggleSyncHorizontalScrolling(_ sender: Any?) {
+        scrollSync.horizontal.toggle()
+        if scrollSync.horizontal, let main = panes[0].tabs.active?.editor, let other = panes[1].tabs.active?.editor {
+            scrollSync.xOffset = other.send(SCI_GETXOFFSET) - main.send(SCI_GETXOFFSET)
+        }
+    }
+
+    /// The focused view scrolled: the other view's document follows, keeping the offset it had
+    /// when syncing was turned on. Only the focused view leads, so the two never fight.
+    func syncScroll(from tab: EditorTab) {
+        guard scrollSync.isOn, !isSyncingScroll, let view = view(of: tab), view == activeView,
+              panes[view].tabs.active === tab, let other = panes[1 - view].tabs.active else { return }
+        isSyncingScroll = true
+        defer { isSyncingScroll = false }
+        let target = scrollSync.target(fromView: view, line: tab.editor.send(SCI_GETFIRSTVISIBLELINE),
+                                       x: tab.editor.send(SCI_GETXOFFSET))
+        if scrollSync.vertical { other.editor.send(SCI_SETFIRSTVISIBLELINE, target.line) }
+        if scrollSync.horizontal { other.editor.send(SCI_SETXOFFSET, target.x) }
+    }
+
     // MARK: - Themes (MAC-36)
 
     /// Every editor and the Search results panel take the selected theme.
     func applyTheme() {
-        tabs.items.forEach { $0.reapplyTheme() }
+        openTabs.forEach { $0.reapplyTheme() }
         refreshDocumentMap(reattach: true)
         searchResults.applyCurrentTheme()
         refresh()
@@ -725,7 +906,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     // MARK: - Search results (MAC-32)
 
     /// What Find All searches: every tab, named by its file path or, untitled, by its tab name.
-    var searchDocuments: [SearchDocument] { tabs.items.map(Self.searchDocument) }
+    var searchDocuments: [SearchDocument] { openDocuments.map(Self.searchDocument) }
     var activeSearchDocument: SearchDocument? { activeTab.map(Self.searchDocument) }
 
     private static func searchDocument(_ tab: EditorTab) -> SearchDocument {
@@ -735,7 +916,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     var isSearchResultsVisible: Bool { !searchResults.isHidden }
     /// The editor area's height, for the split between it and the results panel.
-    var editorAreaHeight: CGFloat { editorContainer.frame.height }
+    var editorAreaHeight: CGFloat { panes[0].container.frame.height }
 
     func showSearchResults(_ block: SearchResultsBlock) {
         setSearchResultsVisible(true)
@@ -774,13 +955,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     func openSearchPath(_ path: String) { _ = tabFor(searchPath: path) }
 
     private func tabFor(searchPath path: String) -> EditorTab? {
-        if let index = tabs.firstIndex(where: { Self.searchDocument($0).path == path }) {
-            selectTab(at: index)
-            return activeTab
+        for view in [activeView, 1 - activeView] {
+            if let index = panes[view].tabs.firstIndex(where: { Self.searchDocument($0).path == path }) {
+                selectTab(at: index, inView: view)
+                return activeTab
+            }
         }
         guard FileManager.default.fileExists(atPath: path) else { return nil }
         open(URL(fileURLWithPath: path))
-        return tabs.items.first { $0.fileURL?.standardizedFileURL.path == path }
+        return openTabs.first { $0.fileURL?.standardizedFileURL.path == path }
     }
 
     @IBAction func toggleSearchResultsWindow(_ sender: Any?) {
@@ -887,7 +1070,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             item.state = (item.representedObject as? String) == activeTab?.language.name ? .on : .off
         case #selector(toggleMonitoring(_:)):
             item.state = activeTab?.isMonitoring == true ? .on : .off
-            return activeTab?.fileURL != nil
+            return activeTab?.fileURL != nil && activeTab?.twin == nil  // a cloned document is not monitored
+        case #selector(cloneToOtherView(_:)):
+            return activeTab?.isMonitoring != true
+        case #selector(switchToOtherView(_:)):
+            return isOtherViewVisible
+        case #selector(toggleSyncVerticalScrolling(_:)):
+            item.state = scrollSync.vertical ? .on : .off
+        case #selector(toggleSyncHorizontalScrolling(_:)):
+            item.state = scrollSync.horizontal ? .on : .off
         case #selector(saveDocument(_:)), #selector(saveDocumentAs(_:)):
             return activeTab?.isMonitoring != true  // a monitored file belongs to its writer
         default:
@@ -907,12 +1098,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     /// Asks about each unsaved document in turn, as Notepad++ does on exit.
     func confirmDiscardAll(completion: @escaping (Bool) -> Void) {
-        confirmDiscard(tabs.items.filter(\.isModified)[...], completion: completion)
+        confirmDiscard(openDocuments.filter(\.isModified)[...], completion: completion)
     }
 
     private func confirmDiscard(_ remaining: ArraySlice<EditorTab>, completion: @escaping (Bool) -> Void) {
         guard let first = remaining.first else { completion(true); return }
-        if let index = tabs.firstIndex(where: { $0 === first }) { selectTab(at: index) }
+        if let view = view(of: first), let index = panes[view].index(of: first) { selectTab(at: index, inView: view) }
         first.confirmDiscard { [weak self] ok in
             guard ok else { completion(false); return }
             self?.confirmDiscard(remaining.dropFirst(), completion: completion)
@@ -923,14 +1114,17 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     /// Pushes the tab list's state into the tab bar, the title bar and the status bar.
     private func refresh() {
-        for (index, tab) in tabs.items.enumerated() {
-            tab.editor.isHidden = index != tabs.activeIndex
+        for (view, pane) in panes.enumerated() {
+            for (index, tab) in pane.tabs.items.enumerated() {
+                tab.editor.isHidden = index != pane.tabs.activeIndex
+            }
+            pane.tabBar.reload(
+                tabs: pane.tabs.items.map { ($0.tabLabel, $0.fileURL?.path) },
+                activeIndex: pane.tabs.activeIndex,
+                isFocusedView: view == activeView || panes[1].tabs.isEmpty)
         }
         refreshFunctionList()
         refreshDocumentMap()
-        tabBar.reload(
-            tabs: tabs.items.map { ($0.tabLabel, $0.fileURL?.path) },
-            activeIndex: tabs.activeIndex)
 
         guard let active = tabs.active else { return }
         window?.title = active.displayName
@@ -967,7 +1161,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             ) { [weak self] _ in self?.presentExternalChangeIfNeeded() }
         }
         guard !isPromptingExternalChange, NSApp.isActive, let window, window.isKeyWindow,
-              window.attachedSheet == nil, let tab = activeTab, let change = tab.pendingExternalChange,
+              window.attachedSheet == nil, let tab = activeTab?.documentOwner, let change = tab.pendingExternalChange,
               let path = tab.fileURL?.path else { return }
         switch ExternalChangePolicy.action(for: change, isModified: tab.isModified,
                                            updateSilently: FileStatusPreferences.updateSilently) {
@@ -988,8 +1182,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                 self.isPromptingExternalChange = false
                 let accepted = response == .alertFirstButtonReturn
                 tab.resolveExternalChange(accept: accepted)
-                if prompt == .keepDeleted && !accepted, let index = self.tabs.items.firstIndex(where: { $0 === tab }) {
-                    self.closeTab(at: index)
+                if prompt == .keepDeleted && !accepted {
+                    tab.twin.map(self.removeTab)  // the document closes in both views
+                    if let view = self.view(of: tab), let index = self.panes[view].index(of: tab) {
+                        self.closeTab(at: index, inView: view)
+                    }
                 } else {
                     self.refresh()
                 }
