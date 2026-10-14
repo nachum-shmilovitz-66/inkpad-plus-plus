@@ -187,6 +187,7 @@ enum MainMenu {
         let themeItem = NSMenuItem(title: "Theme", action: nil, keyEquivalent: "")
         themeItem.submenu = theme
         menu.addItem(themeItem)
+        menu.addItem(item("Style Configurator…", #selector(AppDelegate.showStyleConfigurator(_:))))
         return menu
     }
 

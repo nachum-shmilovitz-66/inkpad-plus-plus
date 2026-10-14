@@ -3,15 +3,15 @@ import Foundation
 /// One `<WordsStyle>` / `<WidgetStyle>` from a Notepad++ styler/theme file.
 /// Absent attributes are nil: they inherit from the default style, as in Notepad++.
 struct StyleEntry {
-    let name: String
-    let styleID: Int
-    let foreground: Int?      // Scintilla BGR
-    let background: Int?      // Scintilla BGR
-    let fontName: String?
-    let fontStyle: Int?       // bit 1 = bold, 2 = italic, 4 = underline
-    let fontSize: Int?        // Windows points
-    let keywordClass: String?
-    let userWords: String     // element text: extra keywords appended to keywordClass
+    var name: String
+    var styleID: Int
+    var foreground: Int?      // Scintilla BGR
+    var background: Int?      // Scintilla BGR
+    var fontName: String?
+    var fontStyle: Int?       // bit 1 = bold, 2 = italic, 4 = underline
+    var fontSize: Int?        // Windows points
+    var keywordClass: String?
+    var userWords: String     // element text: extra keywords appended to keywordClass
 
     var isBold: Bool { (fontStyle ?? 0) & 1 != 0 }
     var isItalic: Bool { (fontStyle ?? 0) & 2 != 0 }
@@ -40,18 +40,33 @@ final class StyleTheme {
 
     private(set) var globalStyles: [StyleEntry] = []
     private(set) var lexerStyles: [String: [StyleEntry]] = [:]
+    /// The Style Configurator's "User ext." per language (LexerType ext=…), checked before
+    /// langs.model.xml's extensions.
+    private(set) var userExtensions: [String: [String]] = [:]
+    /// LexerType desc=… (the Style Configurator's language list).
+    private(set) var lexerDescriptions: [String: String] = [:]
 
     init(url: URL?) {
         guard let url, let doc = try? XMLDocument(contentsOf: url, options: []) else {
             NSLog("MacPad++: could not load theme \(url?.path ?? "nil")")
             return
         }
+        parse(doc)
+    }
+
+    /// A theme being edited in the Style Configurator, read from its live XML.
+    init(document: XMLDocument) { parse(document) }
+
+    private func parse(_ doc: XMLDocument) {
         let globals = (try? doc.nodes(forXPath: "/NotepadPlus/GlobalStyles/WidgetStyle")) as? [XMLElement] ?? []
         globalStyles = globals.map(StyleEntry.init)
         let lexers = (try? doc.nodes(forXPath: "/NotepadPlus/LexerStyles/LexerType")) as? [XMLElement] ?? []
         for lexer in lexers {
             guard let name = lexer.attribute(forName: "name")?.stringValue else { continue }
             lexerStyles[name] = lexer.elements(forName: "WordsStyle").map(StyleEntry.init)
+            lexerDescriptions[name] = lexer.attribute(forName: "desc")?.stringValue ?? name
+            let ext = (lexer.attribute(forName: "ext")?.stringValue ?? "").split(separator: " ").map { $0.lowercased() }
+            if !ext.isEmpty { userExtensions[name] = ext }
         }
     }
 

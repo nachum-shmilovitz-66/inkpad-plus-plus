@@ -54,7 +54,23 @@ final class ThemeManager {
         return available.contains { $0.name == name } ? name : Self.defaultName
     }
 
-    var current: StyleTheme { theme(named: selectedName) }
+    /// The Style Configurator's unsaved edits, shown live everywhere until Save or Cancel.
+    private(set) var previewTheme: StyleTheme?
+
+    var current: StyleTheme { previewTheme ?? theme(named: selectedName) }
+
+    func preview(_ theme: StyleTheme?) {
+        previewTheme = theme
+        NotificationCenter.default.post(name: Self.didChange, object: self)
+    }
+
+    func url(of name: String) -> URL? { available.first { $0.name == name }?.url }
+
+    /// Where the Style Configurator saves a theme: Default in the user's stylers.xml, any other
+    /// theme in the user's themes folder (a bundled theme is copied there, never edited in place).
+    func savePath(for name: String) -> URL {
+        name == Self.defaultName ? userStylers : userDirectory.appendingPathComponent(name + ".xml")
+    }
 
     func theme(named name: String) -> StyleTheme {
         let url = available.first { $0.name == name }?.url ?? defaultURL

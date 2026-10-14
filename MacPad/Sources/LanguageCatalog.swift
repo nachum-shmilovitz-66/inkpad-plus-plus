@@ -75,6 +75,9 @@ final class LanguageCatalog {
         let fileName = url.lastPathComponent.lowercased()
         if let name = LanguageDetector.fileNames[fileName], let def = languages[name] { return def.info }
         let ext = url.pathExtension.lowercased()
+        // The Style Configurator's "User ext." come first, as in Notepad++'s getLangFromExt.
+        if !ext.isEmpty, let name = ThemeManager.shared.current.userExtensions.first(where: { $0.value.contains(ext) })?.key,
+           let def = languages[name] { return def.info }
         if !ext.isEmpty, let name = byExtension[ext], let def = languages[name] { return def.info }
         return plainText
     }

@@ -50,6 +50,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: - Settings › Theme (MAC-36)
 
+    private(set) lazy var styleConfigurator = StyleConfiguratorController()
+
+    @IBAction func showStyleConfigurator(_ sender: Any?) { styleConfigurator.open() }
+
     @IBAction func selectTheme(_ sender: Any?) {
         guard let name = (sender as? NSMenuItem)?.representedObject as? String else { return }
         ThemeManager.shared.select(name)

@@ -125,10 +125,15 @@ enum EditorStyler {
         v.send(SCI_SETINDENTATIONGUIDES, Int(lookForward ? SC_IV_LOOKFORWARD : SC_IV_LOOKBOTH))
         v.send(SCI_SETMARGINWIDTHN, Margin.fold, LexerRecipe.noFoldMargin.contains(language.name) ? 0 : 14)
 
-        // 4. Styles: default → clear all → globals → lexer styles.
+        // 4. Styles: default → clear all → globals → lexer styles, each through the Global override.
+        let globalOverride = GlobalOverride.load()
+        let overrideStyle = theme.global("Global override")
+        func paint(_ id: Int, _ style: StyleEntry) {
+            setStyle(id, globalOverride.apply(to: style, styleID: id, override: overrideStyle), on: v)
+        }
         let defaultStyle = theme.global("Default Style")
         if let d = defaultStyle {
-            setStyle(Int(STYLE_DEFAULT), d, on: v)
+            paint(Int(STYLE_DEFAULT), d)
         } else {
             v.send(SCI_STYLESETFONT, Int(STYLE_DEFAULT), string: "Menlo")
             v.send(SCI_STYLESETSIZE, Int(STYLE_DEFAULT), 13)
@@ -137,12 +142,12 @@ enum EditorStyler {
 
         for g in theme.globalStyles where g.styleID != 0 && g.styleID != Int(STYLE_DEFAULT) {
             // 33 line numbers, 34/35 braces, 37 indent guides …; 21–31 are indicator colours (milestone 3).
-            if g.styleID >= 32 { setStyle(g.styleID, g, on: v) }
+            if g.styleID >= 32 { paint(g.styleID, g) }
         }
         // HTML-family documents paint html, then the embedded javascript / php / asp styles.
         let painted = recipe.embeddedStyles.isEmpty ? [language.name] : recipe.embeddedStyles
         for name in painted {
-            for s in theme.lexerStyles[name] ?? [] { setStyle(s.styleID, s, on: v) }
+            for s in theme.lexerStyles[name] ?? [] { paint(s.styleID, s) }
         }
         for style in recipe.eolFilled { v.send(SCI_STYLESETEOLFILLED, style, 1) }
 
