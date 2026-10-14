@@ -112,7 +112,8 @@ Known approximations, to be closed in later milestones:
   uses the system code page), so detected 1252 / ISO 8859-1 show as ANSI; uchardet's KOI8-R and
   ISO-8859-8-I names are mapped (Notepad++'s table misses them). Converting *to* an arbitrary code
   page (Encoding › Character sets menu) is not built yet.
-- Font sizes are scaled by 4/3 (Windows 96 dpi points → macOS points); new files use LF, not CRLF.
+- Font sizes are scaled by 4/3 (Windows 96 dpi points → macOS points) and new files use LF, not
+  CRLF — both now Preferences (MAC-12/MAC-38: Misc. › scale font sizes, New Document › Format).
 - First-line detection (`LanguageDetector`, MAC-11) follows Notepad++'s detectLanguageFromTextBeginning.
 
 Milestone 2: **done except MAC-25** (2026-10-14, release 0.1.8) — tabs, session restore, recent files,
@@ -134,7 +135,15 @@ incremental search and Go To (MAC-34). Mac shortcuts replace Notepad++'s where m
 ⌥⌘I incremental search, ⌘L Go To; F2 / F4 / F7 stay as in Notepad++.
 Not ported yet: "Find in these search results…", Line Filter Mode, the regex error detail text.
 
-Next: milestone 4 (Language menu, Style Configurator, themes, Preferences).
+Milestone 4: **done** (2026-10-14, release 0.1.11) — Language menu (MAC-35, generated from
+Notepad_plus.rc by `scripts/gen-language-menu.py`), per-language lexer setup + first-line detection
+(MAC-11), theme selection (MAC-36, `ThemeManager`), Style Configurator (MAC-37, `StyleDocument`
+patches theme XML in place; Default → user stylers.xml, other themes copied to the user themes
+folder), Preferences window ⌘, (MAC-38, `Preferences`, applied live). User files live in
+`~/Library/Application Support/MacPad++/` (stylers.xml, themes/). Not ported: UDL, colorStyle
+transparency, "Go to settings" links, Print/Backup/Auto-completion pages.
+
+Next: milestone 5 (Edit commands — line ops, case, comment toggle, Column Editor, macros, Shortcut Mapper).
 
 ## Environment
 

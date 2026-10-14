@@ -38,6 +38,8 @@ enum MainMenu {
         let menu = NSMenu(title: "MacPad++")
         menu.addItem(item("About MacPad++", #selector(NSApplication.orderFrontStandardAboutPanel(_:))))
         menu.addItem(.separator())
+        menu.addItem(item("Settings…", #selector(AppDelegate.showPreferences(_:)), ","))
+        menu.addItem(.separator())
         let services = NSMenu(title: "Services")
         menu.addItem(submenu(services))
         NSApp.servicesMenu = services

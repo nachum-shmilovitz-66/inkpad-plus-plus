@@ -9,3 +9,4 @@ xcuserdata/
 MacPad++.xcodeproj/
 # Installers from scripts/make-dmg.sh
 dist/
+*.profraw

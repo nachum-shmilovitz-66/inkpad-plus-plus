@@ -2,8 +2,8 @@ import Foundation
 
 /// The File ▸ Recent Files list: most recent first, no duplicates, bounded length.
 struct RecentFiles: Equatable {
-    /// Notepad++ keeps 10 by default.
-    static let capacity = 10
+    /// Preferences › Recent Files: Notepad++ keeps 10 by default, at most 30.
+    static var capacity: Int { min(max(Preferences.current.maxRecentFiles, 0), 30) }
 
     private(set) var paths: [String] = []
 

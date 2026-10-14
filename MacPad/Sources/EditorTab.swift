@@ -53,8 +53,11 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         editor.translatesAutoresizingMaskIntoConstraints = false
         editor.delegate = self
         EditorStyler.configureEditor(editor)
-        editor.send(SCI_SETEOLMODE, LineEnding.lf.rawValue)  // new documents: Unix line endings on macOS
-        applyLanguage(LanguageCatalog.shared.plainText)
+        // New Document preferences: line ending (Unix by default on a Mac), encoding, language.
+        let prefs = Preferences.current
+        editor.send(SCI_SETEOLMODE, prefs.newDocLineEnding.rawValue)
+        format = FileFormat(encoding: prefs.newDocEncoding.encoding)
+        applyLanguage(LanguageCatalog.shared.language(named: prefs.newDocLanguage) ?? LanguageCatalog.shared.plainText)
     }
 
     func detach() {
@@ -530,6 +533,9 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
             onChange?()
         case SCN_UPDATEUI:
             EditorStyler.updateBraceMatch(editor)
+            if Int(n.updated) & Int(SC_UPDATE_V_SCROLL) != 0 && Preferences.current.lineNumberDynamicWidth {
+                EditorStyler.updateLineNumberWidth(editor)  // Dynamic width follows the last line on screen
+            }
             onChange?()
         case SCN_MODIFIED:
             if n.linesAdded != 0 { EditorStyler.updateLineNumberWidth(editor) }

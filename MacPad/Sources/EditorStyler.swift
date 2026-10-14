@@ -13,7 +13,10 @@ enum Margin {
 enum EditorStyler {
     /// Notepad++ sizes are Windows points (96 dpi); macOS draws a point as one logical pixel.
     /// Scale so "Courier New 10" looks the size it does on Windows.
-    static func macFontSize(_ windowsPoints: Int) -> Int { Int((Double(windowsPoints) * 4 / 3).rounded()) }
+    /// Off in Preferences (MAC-12): the sizes are used as macOS points.
+    static func macFontSize(_ windowsPoints: Int) -> Int {
+        Preferences.current.scaleWindowsFontSizes ? Int((Double(windowsPoints) * 4 / 3).rounded()) : windowsPoints
+    }
 
     /// One-time setup that does not depend on the language.
     static func configureEditor(_ v: ScintillaView) {
@@ -111,19 +114,22 @@ enum EditorStyler {
             }
         }
 
-        // Per-language editor settings: tabs (langs.model.xml tabSettings), indent guides, fold margin.
-        let definition = LanguageCatalog.shared.languages[language.name]
-        if let tab = definition?.tabSettings, tab & 0x7F != 0 {
-            v.send(SCI_SETTABWIDTH, tab & 0x7F)
-            v.send(SCI_SETUSETABS, tab & 0x80 != 0 ? 0 : 1)
-        } else {
-            v.send(SCI_SETTABWIDTH, 4)
-            v.send(SCI_SETUSETABS, 1)
-        }
-        v.send(SCI_SETBACKSPACEUNINDENTS, definition?.backspaceUnindent == true ? 1 : 0)
+        // Per-language editor settings: tabs (Preferences › Indentation, else langs.model.xml
+        // tabSettings, else the default), indent guides, the SQL backslash option, fold margin.
+        let prefs = Preferences.current
+        let tabs = prefs.tabs(for: language.name)
+        v.send(SCI_SETTABWIDTH, max(tabs.size, 1))
+        v.send(SCI_SETUSETABS, tabs.useSpaces ? 0 : 1)
+        v.send(SCI_SETBACKSPACEUNINDENTS, tabs.backspaceUnindent ? 1 : 0)
         let lookForward = LexerRecipe.lookForwardIndentGuides.contains(language.name)
         v.send(SCI_SETINDENTATIONGUIDES, Int(lookForward ? SC_IV_LOOKFORWARD : SC_IV_LOOKBOTH))
-        v.send(SCI_SETMARGINWIDTHN, Margin.fold, LexerRecipe.noFoldMargin.contains(language.name) ? 0 : 14)
+        if language.name == "sql" || language.name == "mssql" {
+            "sql.backslash.escapes".withCString { k in (prefs.sqlBackslashEscapes ? "1" : "0").withCString { val in
+                _ = v.send(SCI_SETPROPERTY, Int(bitPattern: k), Int(bitPattern: val))
+            } }
+        }
+        let foldMargin = !LexerRecipe.noFoldMargin.contains(language.name) && prefs.foldMarkStyle != .none
+        v.send(SCI_SETMARGINWIDTHN, Margin.fold, foldMargin ? 14 : 0)
 
         // 4. Styles: default → clear all → globals → lexer styles, each through the Global override.
         let globalOverride = GlobalOverride.load()
@@ -152,6 +158,7 @@ enum EditorStyler {
         for style in recipe.eolFilled { v.send(SCI_STYLESETEOLFILLED, style, 1) }
 
         applyWidgetColours(theme, to: v)
+        applyViewPreferences(Preferences.current, theme: theme, to: v)
         v.send(SCI_COLOURISE, 0, -1)
         updateLineNumberWidth(v)
     }
@@ -259,9 +266,89 @@ enum EditorStyler {
         return pixels
     }
 
-    /// Line-number margin wide enough for the current line count (Notepad++'s dynamic width).
+    /// The Preferences that are view settings in Notepad++ (Editing, Margins/Border/Edge), applied
+    /// to every editor when they change.
+    static func applyViewPreferences(_ p: Preferences, theme: StyleTheme, to v: ScintillaView) {
+        // Current line: none, highlighted background (the theme's colour), or a frame.
+        v.send(SCI_SETCARETLINEVISIBLE, p.currentLineIndicator == .none ? 0 : 1)
+        v.send(SCI_SETCARETLINEFRAME, p.currentLineIndicator == .frame ? max(p.currentLineFrameWidth, 1) : 0)
+        // Caret: 0–3 px line, Block, Block After; blink period (0 = steady).
+        switch p.caretWidth {
+        case 4: v.send(SCI_SETCARETSTYLE, Int(CARETSTYLE_BLOCK))
+        case 5: v.send(SCI_SETCARETSTYLE, Int(CARETSTYLE_BLOCK | CARETSTYLE_BLOCK_AFTER))
+        default:
+            v.send(SCI_SETCARETSTYLE, Int(CARETSTYLE_LINE))
+            v.send(SCI_SETCARETWIDTH, min(max(p.caretWidth, 0), 3))
+        }
+        v.send(SCI_SETCARETPERIOD, p.caretBlinkRate)
+        let wrapIndent: Int32 = p.lineWrap == .default ? SC_WRAPINDENT_FIXED : p.lineWrap == .aligned ? SC_WRAPINDENT_SAME : SC_WRAPINDENT_INDENT
+        v.send(SCI_SETWRAPINDENTMODE, Int(wrapIndent))
+        v.send(SCI_SETVIRTUALSPACEOPTIONS, Int(SCVS_RECTANGULARSELECTION) | (p.virtualSpace ? Int(SCVS_USERACCESSIBLE | SCVS_NOWRAPLINESTART) : 0))
+        v.send(SCI_SETENDATLASTLINE, p.scrollBeyondLastLine ? 0 : 1)
+        v.send(SCI_SETDRAGDROPENABLED, p.dragAndDrop ? 1 : 0)
+        v.send(SCI_SETMULTIPLESELECTION, p.multiEditing ? 1 : 0)
+        for eol in ["\r", "\n", "\r\n"] {
+            _ = eol.withCString { v.send(SCI_SETREPRESENTATIONAPPEARANCE, Int(bitPattern: $0),
+                                         Int(p.eolRounded ? SC_REPRESENTATION_BLOB : SC_REPRESENTATION_PLAIN)) }
+        }
+
+        // Fold markers: Simple, Arrow, Circle tree, Box tree (None hides the margin, in apply()).
+        let markers: [(Int32, Int32)]
+        switch p.foldMarkStyle {
+        case .simple:
+            markers = [(SC_MARKNUM_FOLDEROPEN, SC_MARK_MINUS), (SC_MARKNUM_FOLDER, SC_MARK_PLUS), (SC_MARKNUM_FOLDERSUB, SC_MARK_EMPTY),
+                       (SC_MARKNUM_FOLDERTAIL, SC_MARK_EMPTY), (SC_MARKNUM_FOLDEREND, SC_MARK_EMPTY),
+                       (SC_MARKNUM_FOLDEROPENMID, SC_MARK_EMPTY), (SC_MARKNUM_FOLDERMIDTAIL, SC_MARK_EMPTY)]
+        case .arrow:
+            markers = [(SC_MARKNUM_FOLDEROPEN, SC_MARK_ARROWDOWN), (SC_MARKNUM_FOLDER, SC_MARK_ARROW), (SC_MARKNUM_FOLDERSUB, SC_MARK_EMPTY),
+                       (SC_MARKNUM_FOLDERTAIL, SC_MARK_EMPTY), (SC_MARKNUM_FOLDEREND, SC_MARK_EMPTY),
+                       (SC_MARKNUM_FOLDEROPENMID, SC_MARK_EMPTY), (SC_MARKNUM_FOLDERMIDTAIL, SC_MARK_EMPTY)]
+        case .circle:
+            markers = [(SC_MARKNUM_FOLDEROPEN, SC_MARK_CIRCLEMINUS), (SC_MARKNUM_FOLDER, SC_MARK_CIRCLEPLUS),
+                       (SC_MARKNUM_FOLDERSUB, SC_MARK_VLINE), (SC_MARKNUM_FOLDERTAIL, SC_MARK_LCORNERCURVE),
+                       (SC_MARKNUM_FOLDEREND, SC_MARK_CIRCLEPLUSCONNECTED), (SC_MARKNUM_FOLDEROPENMID, SC_MARK_CIRCLEMINUSCONNECTED),
+                       (SC_MARKNUM_FOLDERMIDTAIL, SC_MARK_TCORNERCURVE)]
+        case .box, .none:
+            markers = [(SC_MARKNUM_FOLDEROPEN, SC_MARK_BOXMINUS), (SC_MARKNUM_FOLDER, SC_MARK_BOXPLUS),
+                       (SC_MARKNUM_FOLDERSUB, SC_MARK_VLINE), (SC_MARKNUM_FOLDERTAIL, SC_MARK_LCORNER),
+                       (SC_MARKNUM_FOLDEREND, SC_MARK_BOXPLUSCONNECTED), (SC_MARKNUM_FOLDEROPENMID, SC_MARK_BOXMINUSCONNECTED),
+                       (SC_MARKNUM_FOLDERMIDTAIL, SC_MARK_TCORNER)]
+        }
+        for (num, symbol) in markers { v.send(SCI_MARKERDEFINE, Int(num), Int(symbol)) }
+
+        // Margins, edge, padding.
+        v.send(SCI_SETMARGINWIDTHN, Margin.symbol, p.showBookmarkMargin ? 16 : 0)
+        updateLineNumberWidth(v)
+        v.send(SCI_MULTIEDGECLEARALL)
+        let edgeColour = theme.global("Edge colour")?.foreground ?? 0xC0C0C0
+        let columns = p.edgeColumns.filter { (1...8192).contains($0) }
+        if columns.isEmpty {
+            v.send(SCI_SETEDGEMODE, Int(EDGE_NONE))
+        } else if columns.count == 1 && p.edgeBackgroundMode {
+            v.send(SCI_SETEDGEMODE, Int(EDGE_BACKGROUND))
+            v.send(SCI_SETEDGECOLUMN, columns[0])
+            v.send(SCI_SETEDGECOLOUR, edgeColour)
+        } else {
+            v.send(SCI_SETEDGEMODE, Int(EDGE_MULTILINE))
+            for column in columns { v.send(SCI_MULTIEDGEADDLINE, column, edgeColour) }
+        }
+        v.send(SCI_SETMARGINLEFT, 0, max(p.paddingLeft, 0))
+        v.send(SCI_SETMARGINRIGHT, 0, max(p.paddingRight, 0))
+    }
+
+    /// Line-number margin: hidden, or wide enough for the line count (Constant, at least 4 digits)
+    /// or for the last line on screen (Dynamic, at least 3), as Notepad++ does.
     static func updateLineNumberWidth(_ v: ScintillaView) {
-        let digits = max(3, String(v.send(SCI_GETLINECOUNT)).count)
+        let p = Preferences.current
+        guard p.showLineNumbers else { v.send(SCI_SETMARGINWIDTHN, Margin.lineNumber, 0); return }
+        let lastLine: Int
+        if p.lineNumberDynamicWidth {
+            let lastVisible = v.send(SCI_GETFIRSTVISIBLELINE) + v.send(SCI_LINESONSCREEN)
+            lastLine = min(v.send(SCI_DOCLINEFROMVISIBLE, lastVisible) + 1, v.send(SCI_GETLINECOUNT))
+        } else {
+            lastLine = v.send(SCI_GETLINECOUNT)
+        }
+        let digits = max(p.lineNumberDynamicWidth ? 3 : 4, String(lastLine).count)
         let width = v.send(SCI_TEXTWIDTH, Int(STYLE_LINENUMBER), string: String(repeating: "8", count: digits))
         v.send(SCI_SETMARGINWIDTHN, Margin.lineNumber, width + 8)
     }

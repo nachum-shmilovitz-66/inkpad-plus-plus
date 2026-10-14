@@ -225,6 +225,7 @@ enum SearchMessages {
     static let replaceEndReached = SearchStatus(kind: .wrapped, text: "Replace: Reached document end, started from top.")
     static let replaceTopReached = SearchStatus(kind: .wrapped, text: "Replace: Reached document beginning, started from bottom.")
     static let replacedNextFound = SearchStatus(kind: .message, text: "Replace: 1 occurrence was replaced. The next occurrence found.")
+    static let replacedOnly = SearchStatus(kind: .message, text: "Replace: 1 occurrence was replaced.")
     static let replacedNoMore = SearchStatus(kind: .message, text: "Replace: 1 occurrence was replaced. No more occurrences were found.")
     static func replaceNotFound(scope: SearchScope) -> SearchStatus {
         SearchStatus(kind: .notFound, text: "Replace: no occurrence was found \(scope.text)")

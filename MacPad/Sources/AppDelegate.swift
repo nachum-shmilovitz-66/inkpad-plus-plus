@@ -51,6 +51,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: - Settings › Theme (MAC-36)
 
     private(set) lazy var styleConfigurator = StyleConfiguratorController()
+    private(set) lazy var preferences = PreferencesController()
+
+    @IBAction func showPreferences(_ sender: Any?) { preferences.show() }
 
     @IBAction func showStyleConfigurator(_ sender: Any?) { styleConfigurator.open() }
 

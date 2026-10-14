@@ -131,22 +131,26 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
     /// Notepad++'s setSearchTextWithSettings: 1 to 1024 characters of selection; with no
     /// selection the word at the caret is selected and used.
     private func seedFromSelection() {
-        guard let editor = editorProvider(), let text = Self.seedText(from: editor) else { return }
+        let prefs = Preferences.current
+        guard prefs.fillFindWithSelection, let editor = editorProvider(),
+              let text = Self.seedText(from: editor, maxCharacters: prefs.fillFindMaxCharacters,
+                                       selectWord: prefs.selectWordUnderCaret) else { return }
         findField.stringValue = text
     }
 
     static let seedLengthLimit = 1024
 
-    static func seedText(from editor: ScintillaView) -> String? {
+    static func seedText(from editor: ScintillaView, maxCharacters: Int = seedLengthLimit, selectWord: Bool = true) -> String? {
         var start = editor.send(SCI_GETSELECTIONSTART), end = editor.send(SCI_GETSELECTIONEND)
         if start == end {
+            guard selectWord else { return nil }
             start = editor.send(SCI_WORDSTARTPOSITION, start, 1)
             end = editor.send(SCI_WORDENDPOSITION, end, 1)
             guard end > start else { return nil }
             editor.send(SCI_SETSEL, start, end)
         }
         let text = String(decoding: editor.utf8Bytes()[start..<end], as: UTF8.self)
-        return (1...seedLengthLimit).contains(text.count) ? text : nil
+        return (1...max(maxCharacters, 1)).contains(text.count) ? text : nil
     }
 
     // MARK: - Commands
@@ -178,7 +182,9 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
         let text = findField.stringValue, replacement = replaceField.stringValue
         guard !text.isEmpty else { return }
         remember(find: text, replace: replacement)
-        switch SearchEngine(editor: editor).replace(text, with: replacement, options: options) {
+        switch SearchEngine(editor: editor).replace(text, with: replacement, options: options,
+                                                    stopAfterReplacing: Preferences.current.replaceStopsWithoutFindingNext) {
+        case .replacedOnly: report(SearchMessages.replacedOnly)
         case .readOnly: report(SearchMessages.replaceReadOnly)
         case .invalidRegex: report(SearchMessages.invalidRegex)
         case .notFound: report(SearchMessages.replaceNotFound(scope: findScope(options)), hint: SearchMessages.hint(for: options))
@@ -251,7 +257,7 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
                                                       options: opts)
         report(nil)
         resultsSink(SearchResultsBlock(header: header, files: files, hitCount: total))
-        if total > 0 { close() }
+        if total > 0 && !Preferences.current.findDialogStaysOpen { close() }
     }
 
     /// In selection narrows Find All only when the selection is not the whole document.
@@ -263,7 +269,7 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
     /// Replace All in All Opened Documents: every editable document, whole, one undo step each.
     func replaceAllInOpenedDocuments() {
         let text = findField.stringValue, replacement = replaceField.stringValue
-        guard !text.isEmpty, confirmReplaceInOpenedFiles() else { return }
+        guard !text.isEmpty, !Preferences.current.confirmReplaceInAllOpened || confirmReplaceInOpenedFiles() else { return }
         remember(find: text, replace: replacement)
         var opts = options
         opts.inSelection = false
@@ -384,7 +390,7 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
         case .found(let block):
             report(nil)
             resultsSink(block)
-            if block.hitCount > 0 { close() }
+            if block.hitCount > 0 && !Preferences.current.findDialogStaysOpen { close() }
         case .replaced(let n, let failed):
             report(SearchMessages.replacedInFiles(n), hint: failed.isEmpty ? nil : "Could not write:\n" + failed.joined(separator: "\n"))
         case .cancelled:
@@ -546,7 +552,8 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
             options.inSelection = false
         } else if autoCheck {
             let length = editor.send(SCI_GETSELECTIONEND) - editor.send(SCI_GETSELECTIONSTART)
-            if length >= Self.seedLengthLimit { options.inSelection = true }
+            let threshold = Preferences.current.inSelectionThreshold  // 0: never ticked by itself
+            if threshold > 0 && length >= threshold { options.inSelection = true }
         }
     }
 

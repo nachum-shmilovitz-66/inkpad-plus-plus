@@ -15,6 +15,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// The editor above, Notepad++'s "Search results" panel docked below (MAC-32).
     private let splitView = NSSplitView()
     private var themeObserver: NSObjectProtocol?
+    private var preferencesObserver: NSObjectProtocol?
     let searchResults = SearchResultsPanel()
     /// Notepad++'s incremental search bar, above the status bar (MAC-34).
     let incrementalBar = IncrementalSearchBar()
@@ -79,6 +80,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         searchResults.onOpenPath = { [weak self] path in self?.openSearchPath(path) }
         searchResults.onClose = { [weak self] in self?.setSearchResultsVisible(false) }
         themeObserver = NotificationCenter.default.addObserver(forName: ThemeManager.didChange, object: nil, queue: .main) { [weak self] _ in
+            self?.applyTheme()
+        }
+        // Preferences apply at once to every open editor (MAC-38), as Notepad++'s do.
+        preferencesObserver = NotificationCenter.default.addObserver(forName: Preferences.didChange, object: nil, queue: .main) { [weak self] _ in
             self?.applyTheme()
         }
         tabBar.onSelect = { [weak self] index in self?.selectTab(at: index) }

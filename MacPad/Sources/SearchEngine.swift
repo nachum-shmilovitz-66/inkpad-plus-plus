@@ -77,6 +77,8 @@ struct SearchEngine {
     enum ReplaceOutcome: Equatable {
         /// The selection was the match and was replaced; then the next match was looked for.
         case replaced(next: Outcome)
+        /// Replaced, and (Preferences: "Replace: Don't move to the following occurrence") no more.
+        case replacedOnly
         /// The selection was not a match: Replace acted as Find Next and selected this one.
         case foundOnly(Match)
         case notFound
@@ -85,7 +87,7 @@ struct SearchEngine {
     }
 
     /// processReplace: replaces the selection if it is a match, then finds the next one.
-    func replace(_ text: String, with replacement: String, options: SearchOptions) -> ReplaceOutcome {
+    func replace(_ text: String, with replacement: String, options: SearchOptions, stopAfterReplacing: Bool = false) -> ReplaceOutcome {
         guard editor.send(SCI_GETREADONLY) == 0 else { return .readOnly }
         let selStart = editor.send(SCI_GETSELECTIONSTART), selEnd = editor.send(SCI_GETSELECTIONEND)
         switch findNext(text, options: options, kind: .findForReplace, fromSelectionStart: true) {
@@ -99,6 +101,7 @@ struct SearchEngine {
             let replacedLength = replaceTarget(with: replacement, options: options)
             let caret = match.start + replacedLength
             editor.send(SCI_SETSEL, caret, caret)
+            if stopAfterReplacing { return .replacedOnly }
             return .replaced(next: findNext(text, options: options, kind: .replaceNext, fromSelectionStart: true))
         }
     }
