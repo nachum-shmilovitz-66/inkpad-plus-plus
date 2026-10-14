@@ -81,6 +81,9 @@ enum MainMenu {
         menu.addItem(item("Select All", #selector(NSText.selectAll(_:)), "a"))
         menu.addItem(item("Begin/End Select", #selector(MainWindowController.beginEndSelect(_:)), "b", [.command, .shift]))
         menu.addItem(item("Begin/End Select in Column Mode", #selector(MainWindowController.beginEndSelectColumn(_:)), "b", [.command, .option, .shift]))
+        // Notepad++'s Alt+C is ⌥⌘C (⌥C types a character on a Mac).
+        menu.addItem(item("Column Mode…", #selector(AppDelegate.showColumnModeTip(_:))))
+        menu.addItem(item("Column Editor…", #selector(AppDelegate.showColumnEditor(_:)), "c", [.command, .option]))
         menu.addItem(.separator())
         menu.addItem(submenu(copyToClipboardMenu()))
         menu.addItem(submenu(indentMenu()))

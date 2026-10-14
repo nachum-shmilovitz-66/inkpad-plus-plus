@@ -52,6 +52,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private(set) lazy var styleConfigurator = StyleConfiguratorController()
     private(set) lazy var preferences = PreferencesController()
+    private(set) lazy var columnEditor = ColumnEditorController { [weak self] in self?.mainWindow.activeTab?.editor }
+
+    @IBAction func showColumnEditor(_ sender: Any?) {
+        guard mainWindow.activeTab?.isReadOnly == false else { NSSound.beep(); return }
+        columnEditor.show()
+    }
+
+    @IBAction func showColumnModeTip(_ sender: Any?) {
+        let alert = NSAlert()
+        alert.messageText = "Column Mode Tip"
+        alert.informativeText = ColumnEditor.columnModeTip
+        alert.runModal()
+    }
 
     @IBAction func showPreferences(_ sender: Any?) { preferences.show() }
 
