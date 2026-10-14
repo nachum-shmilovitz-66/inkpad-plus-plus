@@ -82,6 +82,63 @@ final class FileInstallerTests: XCTestCase {
         XCTAssertEqual(try listing(), ["keep"])
     }
 
+    // MARK: MAC-57: nothing followed through links, nothing read that is not the user's own copy
+
+    func testANonRegularTargetIsRefusedNotReplaced() throws {
+        let fifo = dir.appendingPathComponent("pipe")
+        XCTAssertEqual(mkfifo(fifo.path, 0o644), 0)
+        XCTAssertThrowsError(try FileInstaller.install(Data("x".utf8), atPath: fifo.path))
+        var info = stat()
+        XCTAssertEqual(lstat(fifo.path, &info), 0)
+        XCTAssertEqual(info.st_mode & S_IFMT, S_IFIFO, "left as it was")
+    }
+
+    func testNoTempFileIsLeftWhenTheRenameFails() throws {
+        let target = dir.appendingPathComponent("t.txt")
+        try Data("old".utf8).write(to: target)
+        // A folder where the temp can be created but the target is a directory: refused, clean.
+        let folderTarget = dir.appendingPathComponent("sub")
+        try FileManager.default.createDirectory(at: folderTarget, withIntermediateDirectories: true)
+        XCTAssertThrowsError(try FileInstaller.install(Data("x".utf8), atPath: folderTarget.path))
+        XCTAssertEqual(Set(try FileManager.default.contentsOfDirectory(atPath: dir.path)), ["t.txt", "sub"])
+    }
+
+    func testTheUsersCopyIsReadOnlyWhenItIsStillTheirs() throws {
+        let target = dir.appendingPathComponent("target.txt")
+        let source = dir.appendingPathComponent("source")
+        try Data("mine".utf8).write(to: source)
+        try FileInstaller.installFile(source: source.path, target: target.path, owner: getuid())
+        XCTAssertEqual(try String(contentsOf: target, encoding: .utf8), "mine")
+
+        let secret = dir.appendingPathComponent("secret")
+        try Data("secret".utf8).write(to: secret)
+        let link = dir.appendingPathComponent("swapped")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: secret)
+        XCTAssertThrowsError(try FileInstaller.installFile(source: link.path, target: target.path, owner: getuid()), "a link is not followed")
+
+        let hard = dir.appendingPathComponent("hardlinked")
+        XCTAssertEqual(Darwin.link(secret.path, hard.path), 0)
+        XCTAssertThrowsError(try FileInstaller.installFile(source: hard.path, target: target.path, owner: getuid()), "a second name for another file")
+
+        try Data("x".utf8).write(to: source)
+        XCTAssertThrowsError(try FileInstaller.installFile(source: source.path, target: target.path, owner: getuid() + 1), "someone else's file")
+        XCTAssertEqual(try String(contentsOf: target, encoding: .utf8), "mine", "target untouched by every refusal")
+    }
+
+    func testTheHelperBinaryInstallsAFileOnce() throws {
+        let target = dir.appendingPathComponent("via helper.txt")
+        let source = dir.appendingPathComponent("src")
+        try Data("from the helper".utf8).write(to: source)
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: PrivilegedSave.helperPath)
+        p.arguments = ["--install-file", source.path, target.path, String(getuid())]
+        p.standardError = Pipe()
+        try p.run()
+        p.waitUntilExit()
+        XCTAssertEqual(p.terminationStatus, 0)
+        XCTAssertEqual(try String(contentsOf: target, encoding: .utf8), "from the helper")
+    }
+
     func testHebrewAndBinaryBytesArriveExactly() throws {
         let target = dir.appendingPathComponent("bytes")
         let payload = Data("שלום\r\n".utf8) + Data([0x00, 0xFF, 0x80])

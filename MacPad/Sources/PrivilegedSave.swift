@@ -58,26 +58,15 @@ enum PrivilegedSave {
         "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
-    /// The root script: copy `source` beside `target`, match an existing target's owner, group and
-    /// mode (a new file gets 0644), and rename it into place. Absolute tool paths, `set -e`, and the
-    /// temporary copy is removed whatever happens.
-    static func installScript(source: String, target: String) -> String {
-        """
-        set -e
-        src=\(shellQuote(source))
-        dst=\(shellQuote(target))
-        tmp="$dst.macpad-save.$$"
-        trap '/bin/rm -f "$tmp"' EXIT
-        /bin/cat "$src" > "$tmp"
-        if [ -e "$dst" ]; then
-          /usr/sbin/chown "$(/usr/bin/stat -f %u:%g "$dst")" "$tmp"
-          /bin/chmod "$(/usr/bin/stat -f %Lp "$dst")" "$tmp"
-        else
-          /bin/chmod 644 "$tmp"
-        fi
-        /bin/mv -f "$tmp" "$dst"
-        """
+    /// The root command (MAC-57): MacPad++'s helper binary, run once, does the write with the same
+    /// descriptor-based code the helper daemon uses — no shell temp files, nothing followed through
+    /// links, and the user's copy read only if it is still the user's own file.
+    static func installScript(source: String, target: String, owner: uid_t = getuid(),
+                              helper: String = PrivilegedSave.helperPath) -> String {
+        "exec \(shellQuote(helper)) --install-file \(shellQuote(source)) \(shellQuote(target)) \(owner)"
     }
+
+    static var helperPath: String { Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/MacPadHelper").path }
 
     /// Escapes for an AppleScript string literal.
     static func appleScriptString(_ s: String) -> String {
@@ -88,8 +77,9 @@ enum PrivilegedSave {
         "do shell script \(appleScriptString(shell)) with prompt \(appleScriptString(prompt)) with administrator privileges"
     }
 
+    /// The full path, so the administrator sees exactly which file is written (MAC-55).
     static func prompt(for target: URL) -> String {
-        "MacPad++ needs administrator rights to save \u{201C}\(target.lastPathComponent)\u{201D}."
+        "MacPad++ needs administrator rights to save \u{201C}\(target.path)\u{201D}."
     }
 
     /// Writes `data` to `target` as root. Symlinks are resolved first, so a linked file is updated

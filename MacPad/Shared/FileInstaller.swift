@@ -68,34 +68,90 @@ enum FileInstaller {
         }
     }
 
+    /// MAC-57: every step works on descriptors, never on a path someone could swap meanwhile —
+    /// the folder is opened once (and checked to be the one that was asked for), the temp file is
+    /// created there exclusively and without following links, its owner and mode are set on the
+    /// descriptor, and it is renamed over the target within that same folder.
     static func install(_ data: Data, atPath path: String) throws {
         try validate(path: path, size: data.count)
         let target = URL(fileURLWithPath: path).resolvingSymlinksInPath()
-        let fm = FileManager.default
-        let temp = target.deletingLastPathComponent()
-            .appendingPathComponent(".\(target.lastPathComponent).macpad-save.\(UUID().uuidString)")
-        guard fm.createFile(atPath: temp.path, contents: data, attributes: [.posixPermissions: 0o600]) else {
-            throw Failure.io("Could not write a temporary file in \(target.deletingLastPathComponent().path).")
-        }
-        defer { try? fm.removeItem(at: temp) }  // gone after the rename; cleans up after a failure
+        let folderPath = target.deletingLastPathComponent().path
+        let name = target.lastPathComponent
 
+        let folder = open(folderPath, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        guard folder >= 0 else { throw Failure.io("Could not open \(folderPath): \(errnoText())") }
+        defer { close(folder) }
+        var opened = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        guard fcntl(folder, F_GETPATH, &opened) == 0,
+              URL(fileURLWithPath: String(cString: opened)).standardizedFileURL.path
+                == URL(fileURLWithPath: folderPath).standardizedFileURL.path else {
+            throw Failure.io("\(folderPath) changed while saving.")
+        }
+
+        // The file being replaced, as it is now in that folder — never through a link.
+        var existing = stat()
+        let replacing = fstatat(folder, name, &existing, AT_SYMLINK_NOFOLLOW) == 0
+        if replacing && (existing.st_mode & S_IFMT) != S_IFREG {
+            throw Failure.invalidPath("it is not a regular file (it may have changed while saving)")
+        }
+
+        let tempName = ".\(name).macpad-save.\(UUID().uuidString)"
+        let fd = openat(folder, tempName, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard fd >= 0 else { throw Failure.io("Could not write a temporary file in \(folderPath): \(errnoText())") }
+        var renamed = false
+        defer { if !renamed { unlinkat(folder, tempName, 0) } }
         do {
-            if let existing = try? fm.attributesOfItem(atPath: target.path) {
-                var keep: [FileAttributeKey: Any] = [:]
-                keep[.ownerAccountID] = existing[.ownerAccountID]
-                keep[.groupOwnerAccountID] = existing[.groupOwnerAccountID]
-                keep[.posixPermissions] = existing[.posixPermissions]
-                try fm.setAttributes(keep, ofItemAtPath: temp.path)
-            } else {
-                try fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: temp.path)
+            defer { close(fd) }
+            try data.withUnsafeBytes { raw in
+                var offset = 0
+                while offset < raw.count {
+                    let written = write(fd, raw.baseAddress! + offset, raw.count - offset)
+                    if written < 0 {
+                        if errno == EINTR { continue }
+                        throw Failure.io("Could not write the temporary file: \(errnoText())")
+                    }
+                    offset += written
+                }
             }
-        } catch {
-            throw Failure.io("Could not give the new file the original's owner and permissions: \(error.localizedDescription)")
+            if replacing {
+                // Same owner and group as the original. The temp file's group comes from the folder,
+                // so compare with the temp file itself; when they already match there is nothing to do.
+                var temp = stat()
+                guard fstat(fd, &temp) == 0 else { throw Failure.io("Could not read the temporary file: \(errnoText())") }
+                if (temp.st_uid != existing.st_uid || temp.st_gid != existing.st_gid),
+                   fchown(fd, existing.st_uid, existing.st_gid) != 0 {
+                    throw Failure.io("Could not give the new file the original's owner: \(errnoText())")
+                }
+                guard fchmod(fd, existing.st_mode & 0o7777) == 0 else {
+                    throw Failure.io("Could not give the new file the original's permissions: \(errnoText())")
+                }
+            } else {
+                guard fchmod(fd, 0o644) == 0 else { throw Failure.io("Could not set the new file's permissions: \(errnoText())") }
+            }
         }
-        guard rename(temp.path, target.path) == 0 else {
-            throw Failure.io("Could not replace \(target.path): \(String(cString: strerror(errno)))")
+        guard renameat(folder, tempName, folder, name) == 0 else {
+            throw Failure.io("Could not replace \(target.path): \(errnoText())")
         }
+        renamed = true
     }
+
+    /// MAC-57: the password route runs this as root (`MacPadHelper --install-file`). The source
+    /// is the user's own temp copy; it is read only if it is still that — a regular file, not a
+    /// link, owned by `owner`, with one name — so root never copies some other file into the target.
+    static func installFile(source: String, target: String, owner: uid_t) throws {
+        let fd = open(source, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        guard fd >= 0 else { throw Failure.io("Could not read the document to save: \(errnoText())") }
+        defer { close(fd) }
+        var info = stat()
+        guard fstat(fd, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG, info.st_uid == owner, info.st_nlink == 1 else {
+            throw Failure.io("The document to save is not the file MacPad++ wrote.")
+        }
+        guard Int(info.st_size) <= maximumSize else { throw Failure.tooLarge(Int(info.st_size)) }
+        let data = FileHandle(fileDescriptor: fd, closeOnDealloc: false).readDataToEndOfFile()
+        try install(data, atPath: target)
+    }
+
+    private static func errnoText() -> String { String(cString: strerror(errno)) }
 }
 
 /// What MacPad++ and its helper agree on (names, and who may talk to whom).

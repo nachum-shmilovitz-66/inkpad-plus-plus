@@ -85,6 +85,19 @@ final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
     }
 }
 
+// MAC-57: the password route (MAC-22) runs this binary once as root, through macOS's
+// administrator prompt: `MacPadHelper --install-file <source> <target> <uid>`.
+let arguments = CommandLine.arguments
+if arguments.count == 5, arguments[1] == "--install-file", let uid = uid_t(arguments[4]) {
+    do {
+        try FileInstaller.installFile(source: arguments[2], target: arguments[3], owner: uid)
+        exit(0)
+    } catch {
+        FileHandle.standardError.write(Data("\(error.localizedDescription)\n".utf8))
+        exit(1)
+    }
+}
+
 let delegate = ListenerDelegate()
 let listener = NSXPCListener(machServiceName: HelperIdentity.machService)
 listener.delegate = delegate

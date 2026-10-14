@@ -155,7 +155,8 @@ final class PrivilegedSaveScriptTests: XCTestCase {
     func testThePromptNamesTheFile() throws {
         var seen: String?
         try PrivilegedSave.save(Data("x".utf8), to: dir.appendingPathComponent("hosts"), runner: ShellRunner(prompts: { seen = $0 }))
-        XCTAssertEqual(seen, "MacPad++ needs administrator rights to save \u{201C}hosts\u{201D}.")
+        let resolved = dir.appendingPathComponent("hosts").resolvingSymlinksInPath().path
+        XCTAssertEqual(seen, "MacPad++ needs administrator rights to save \u{201C}\(resolved)\u{201D}.", "the full path (MAC-55)")
     }
 
     func testTheAppleScriptCompiles() {
@@ -165,6 +166,14 @@ final class PrivilegedSaveScriptTests: XCTestCase {
         let script = NSAppleScript(source: source)
         var error: NSDictionary?
         XCTAssertTrue(script?.compileAndReturnError(&error) ?? false, "\(String(describing: error))")
+    }
+
+    /// MAC-57: root runs the helper's descriptor-based code, not a shell copy with a guessable temp name.
+    func testTheRootCommandIsTheHelperOnce() {
+        let command = PrivilegedSave.installScript(source: "/tmp/a b", target: "/etc/it's", owner: 501, helper: "/A/MacPadHelper")
+        XCTAssertEqual(command, "exec '/A/MacPadHelper' --install-file '/tmp/a b' '/etc/it'\\''s' 501")
+        XCTAssertFalse(command.contains("$$"))
+        XCTAssertTrue(FileManager.default.isExecutableFile(atPath: PrivilegedSave.helperPath))
     }
 
     func testAppleScriptStringEscaping() {
