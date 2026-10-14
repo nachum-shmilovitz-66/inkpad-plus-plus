@@ -48,6 +48,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return .terminateLater
     }
 
+    // MARK: - Settings › Theme (MAC-36)
+
+    @IBAction func selectTheme(_ sender: Any?) {
+        guard let name = (sender as? NSMenuItem)?.representedObject as? String else { return }
+        ThemeManager.shared.select(name)
+    }
+
+    /// Where the user's own Notepad++ themes go; created on first use and shown in Finder.
+    @IBAction func openThemesFolder(_ sender: Any?) {
+        let folder = ThemeManager.shared.userDirectory
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        NSWorkspace.shared.activateFileViewerSelecting([folder])
+    }
+
     // MARK: - Search menu
 
     @IBAction func showFindPanel(_ sender: Any?) { findReplace.show(.find) }
@@ -78,6 +92,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Rebuilt each time the menu opens, so it always matches the stored list.
     func menuNeedsUpdate(_ menu: NSMenu) {
+        if menu.title == "Theme" {
+            MainMenu.fillThemeMenu(menu)
+            return
+        }
         menu.removeAllItems()
         let recent = RecentFilesStore.shared.files
         guard !recent.isEmpty else {

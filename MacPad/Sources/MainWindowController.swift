@@ -14,6 +14,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private let statusBar = StatusBar()
     /// The editor above, Notepad++'s "Search results" panel docked below (MAC-32).
     private let splitView = NSSplitView()
+    private var themeObserver: NSObjectProtocol?
     let searchResults = SearchResultsPanel()
     /// Notepad++'s incremental search bar, above the status bar (MAC-34).
     let incrementalBar = IncrementalSearchBar()
@@ -77,6 +78,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         searchResults.onOpen = { [weak self] hit, index in self?.openSearchHit(hit, rangeIndex: index) }
         searchResults.onOpenPath = { [weak self] path in self?.openSearchPath(path) }
         searchResults.onClose = { [weak self] in self?.setSearchResultsVisible(false) }
+        themeObserver = NotificationCenter.default.addObserver(forName: ThemeManager.didChange, object: nil, queue: .main) { [weak self] _ in
+            self?.applyTheme()
+        }
         tabBar.onSelect = { [weak self] index in self?.selectTab(at: index) }
         tabBar.onClose = { [weak self] index in self?.closeTab(at: index) }
         statusBar.onEncodingClick = { [weak self] label in self?.showEncodingMenu(at: label) }
@@ -355,6 +359,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     @IBAction func zoomInText(_ sender: Any?) { activeTab?.editor.send(SCI_ZOOMIN) }
     @IBAction func zoomOutText(_ sender: Any?) { activeTab?.editor.send(SCI_ZOOMOUT) }
     @IBAction func restoreTextZoom(_ sender: Any?) { activeTab?.editor.send(SCI_SETZOOM, 0) }
+
+    // MARK: - Themes (MAC-36)
+
+    /// Every editor and the Search results panel take the selected theme.
+    func applyTheme() {
+        tabs.items.forEach { $0.reapplyTheme() }
+        searchResults.applyCurrentTheme()
+        refresh()
+    }
 
     // MARK: - Language menu (MAC-35)
 

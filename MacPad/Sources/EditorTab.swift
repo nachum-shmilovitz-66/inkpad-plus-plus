@@ -505,6 +505,9 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
             overtype: editor.send(SCI_GETOVERTYPE) != 0)
     }
 
+    /// The theme changed (MAC-36): repaint with it, keeping the language.
+    func reapplyTheme() { applyLanguage(language) }
+
     /// Language menu: re-lexes the document with `info`, whatever its extension says.
     func setLanguage(_ info: LanguageInfo) {
         isLanguageChosenByUser = true
@@ -515,7 +518,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
 
     private func applyLanguage(_ info: LanguageInfo) {
         language = info
-        EditorStyler.apply(language: info, theme: StyleTheme.default, to: editor)
+        EditorStyler.apply(language: info, theme: ThemeManager.shared.current, to: editor)
     }
 
     // MARK: - Scintilla notifications

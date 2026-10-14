@@ -303,9 +303,15 @@ final class SearchResultsPanel: NSView, ScintillaNotificationProtocol {
             (SC_MARKNUM_FOLDERMIDTAIL, SC_MARK_TCORNER),
         ]
         for (num, symbol) in markers { p.send(SCI_MARKERDEFINE, Int(num), Int(symbol)) }
-        applyTheme(StyleTheme.default)
+        applyCurrentTheme()
         applyWrap()
         installEventMonitor()
+    }
+
+    /// Repaints with the selected theme (MAC-36), keeping the results and their highlights.
+    func applyCurrentTheme() {
+        applyTheme(ThemeManager.shared.current)
+        restyle()
     }
 
     /// The default style from the theme's Default Style; the rest from its searchResult lexer.

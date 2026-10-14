@@ -11,6 +11,7 @@ enum MainMenu {
         main.addItem(submenu(searchMenu()))
         main.addItem(submenu(viewMenu()))
         main.addItem(submenu(languageMenu()))
+        main.addItem(submenu(settingsMenu()))
         let window = windowMenu()
         main.addItem(submenu(window))
         NSApp.windowsMenu = window
@@ -176,6 +177,32 @@ enum MainMenu {
             }
         }
         return menu
+    }
+
+    /// Notepad++'s Settings menu. Preferences live in the app menu (⌘,) on a Mac.
+    private static func settingsMenu() -> NSMenu {
+        let menu = NSMenu(title: "Settings")
+        let theme = NSMenu(title: "Theme")
+        theme.delegate = AppDelegate.shared  // rebuilt on open: themes can be added while running
+        let themeItem = NSMenuItem(title: "Theme", action: nil, keyEquivalent: "")
+        themeItem.submenu = theme
+        menu.addItem(themeItem)
+        return menu
+    }
+
+    /// The available themes, the selected one ticked, then the user themes folder.
+    static func fillThemeMenu(_ menu: NSMenu) {
+        menu.removeAllItems()
+        let selected = ThemeManager.shared.selectedName
+        for entry in ThemeManager.shared.available {
+            let item = NSMenuItem(title: entry.name, action: #selector(AppDelegate.selectTheme(_:)), keyEquivalent: "")
+            item.representedObject = entry.name
+            item.state = entry.name == selected ? .on : .off
+            menu.addItem(item)
+            if entry.name == ThemeManager.defaultName { menu.addItem(.separator()) }
+        }
+        menu.addItem(.separator())
+        menu.addItem(NSMenuItem(title: "Open Themes Folder…", action: #selector(AppDelegate.openThemesFolder(_:)), keyEquivalent: ""))
     }
 
     private static func viewMenu() -> NSMenu {
