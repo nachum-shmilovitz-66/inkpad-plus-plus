@@ -584,6 +584,34 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         window?.makeFirstResponder(editor)
     }
 
+    // MARK: - Document Map (MAC-45)
+
+    let documentMap = DocumentMapPanel()
+    private(set) lazy var documentMapDock: DockPanel = {
+        let dock = DockPanel(title: "Document Map", content: documentMap)
+        dock.onClose = { [weak self] in self?.setDocumentMapVisible(false) }
+        return dock
+    }()
+
+    var isDocumentMapVisible: Bool { isPanelVisible(documentMapDock) }
+
+    @IBAction func toggleDocumentMap(_ sender: Any?) { setDocumentMapVisible(!isDocumentMapVisible) }
+
+    func setDocumentMapVisible(_ visible: Bool) {
+        setPanel(documentMapDock, visible: visible, in: rightDock, width: 200)
+        if visible { refreshDocumentMap(reattach: true) } else { documentMap.attach(to: nil, language: nil) }
+    }
+
+    /// Follows the visible tab and its scrolling.
+    private func refreshDocumentMap(reattach: Bool = false) {
+        guard isDocumentMapVisible, let tab = activeTab else { return }
+        if reattach || documentMap.editor !== tab.editor {
+            documentMap.attach(to: tab.editor, language: tab.language)
+        } else {
+            documentMap.sync()
+        }
+    }
+
     // MARK: - Docked panels (milestone 6)
 
     /// Shows or hides a docked panel; a dock with nothing visible takes no room.
@@ -612,6 +640,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// Every editor and the Search results panel take the selected theme.
     func applyTheme() {
         tabs.items.forEach { $0.reapplyTheme() }
+        refreshDocumentMap(reattach: true)
         searchResults.applyCurrentTheme()
         refresh()
     }
@@ -794,6 +823,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return !running || mine
         case #selector(commentCommand(_:)), #selector(changeIndent(_:)), #selector(lineOperation(_:)), #selector(blankOperation(_:)):
             return activeTab?.isReadOnly == false
+        case #selector(toggleDocumentMap(_:)):
+            item.state = isDocumentMapVisible ? .on : .off
         case #selector(toggleFunctionList(_:)):
             item.state = isFunctionListVisible ? .on : .off
         case #selector(selectLanguage(_:)):
@@ -840,6 +871,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             tab.editor.isHidden = index != tabs.activeIndex
         }
         refreshFunctionList()
+        refreshDocumentMap()
         tabBar.reload(
             tabs: tabs.items.map { ($0.tabLabel, $0.fileURL?.path) },
             activeIndex: tabs.activeIndex)

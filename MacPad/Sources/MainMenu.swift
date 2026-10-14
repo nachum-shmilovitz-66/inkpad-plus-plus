@@ -383,6 +383,7 @@ enum MainMenu {
         menu.addItem(item("Word Wrap", #selector(MainWindowController.toggleWordWrap(_:))))
         menu.addItem(item("Monitoring (tail -f)", #selector(MainWindowController.toggleMonitoring(_:))))
         menu.addItem(.separator())
+        menu.addItem(item("Document Map", #selector(MainWindowController.toggleDocumentMap(_:))))
         menu.addItem(item("Function List", #selector(MainWindowController.toggleFunctionList(_:))))
         menu.addItem(.separator())
         menu.addItem(item("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]))
