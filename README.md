@@ -4,7 +4,7 @@ A native macOS port of [Notepad++](https://notepad-plus-plus.org/) v8.9.8.1: Swi
 the same Scintilla/Lexilla editing engine Notepad++ uses, reading Notepad++'s own language, styler
 and theme files unchanged. Not affiliated with the Notepad++ project.
 
-Current release: **0.1.11** (milestones 1–4 of 7 done; milestone 5, edit commands, in progress).
+Current release: **0.1.12** (milestones 1–5 of 7 done).
 See `CLAUDE.md` for the roadmap and known gaps.
 
 ## Features
@@ -64,9 +64,15 @@ See `CLAUDE.md` for the roadmap and known gaps.
 - Copy the current file's path, name or folder, or all open files' names or paths.
 - Begin/End Select (also in column mode).
 
+### Macros and shortcuts
+- Record, play back, save (with a shortcut) and run macros N times or until the end of the file —
+  typing, editing commands, menu commands and Find / Replace operations, as Notepad++ records them;
+  "Trim Trailing Space and Save" comes predefined.
+- Shortcut Mapper: every menu command and macro with its shortcut, filter, modify / clear / reset,
+  conflict warnings.
+
 ### Coming next
-- Macros and the Shortcut Mapper (milestone 5), then Function List, Document Map, Folder as
-  Workspace and split view (milestone 6).
+- Function List, Document Map, Folder as Workspace and split view (milestone 6).
 - Not ported yet: User Defined Languages, "Find in these search results…", printing, backups and
   auto-completion settings. Notepad++ plugins (Windows DLLs) cannot run on macOS.
 
@@ -74,7 +80,8 @@ See `CLAUDE.md` for the roadmap and known gaps.
 macOS reserves some of Notepad++'s keys, so these use Mac equivalents: Find Next / Previous ⌘G /
 ⇧⌘G (F3 / Shift+F3), Replace ⌥⌘F (Ctrl+H), Mark ⇧⌘M (Ctrl+M), Find in Files ⇧⌘F, Go To ⌘L
 (Ctrl+G), Incremental Search ⌥⌘I, Toggle Comment ⌘/ (Ctrl+Q), Column Editor ⌥⌘C (Alt+C),
-Move Line Up / Down ⌥⌘↑ / ⌥⌘↓, Settings ⌘,. Bookmarks (F2), search results (F4) and the results
+Move Line Up / Down ⌥⌘↑ / ⌥⌘↓, Record macro ⇧⌘R, Playback ⇧⌘P, Settings ⌘,. Any of them can be
+changed in Settings › Shortcut Mapper. Bookmarks (F2), search results (F4) and the results
 window (F7) keep Notepad++'s keys.
 
 ## Build (macOS on Apple Silicon, Xcode, [XcodeGen](https://github.com/yonaskolb/XcodeGen))

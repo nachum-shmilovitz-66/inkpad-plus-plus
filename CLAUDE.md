@@ -143,7 +143,14 @@ folder), Preferences window ⌘, (MAC-38, `Preferences`, applied live). User fil
 `~/Library/Application Support/MacPad++/` (stylers.xml, themes/). Not ported: UDL, colorStyle
 transparency, "Go to settings" links, Print/Backup/Auto-completion pages.
 
-Next: milestone 5 (Edit commands — line ops, case, comment toggle, Column Editor, macros, Shortcut Mapper).
+Milestone 5: **done** (2026-10-14, release 0.1.12) — Line/Blank Operations and sorts (MAC-39),
+case / indent / comments / copy path / read-only / Begin-End Select (MAC-40), Column Editor
+(MAC-41), macros with Notepad++'s recording + playback rules (MAC-42, `MacroRecorder`, saved in
+Application Support/macros.json), Shortcut Mapper (MAC-43, `ShortcutStore` overrides by
+"action#tag"). Edit commands follow Notepad++'s quirks (column-0 selection rule, sorting the
+trailing empty line, Remove Empty Lines dropping the final EOL).
+
+Next: milestone 6 (Panels — Function List, Document Map, Folder as Workspace, split view).
 
 ## Environment
 

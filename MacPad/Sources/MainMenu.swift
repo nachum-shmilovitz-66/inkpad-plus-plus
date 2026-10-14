@@ -341,6 +341,8 @@ enum MainMenu {
             entry.tag = index
             menu.addItem(entry)
         }
+        menu.addItem(.separator())
+        menu.addItem(item("Modify Shortcut/Delete Macro…", #selector(AppDelegate.showShortcutMapperMacros(_:))))
     }
 
     /// Notepad++'s Settings menu. Preferences live in the app menu (⌘,) on a Mac.
@@ -352,6 +354,7 @@ enum MainMenu {
         themeItem.submenu = theme
         menu.addItem(themeItem)
         menu.addItem(item("Style Configurator…", #selector(AppDelegate.showStyleConfigurator(_:))))
+        menu.addItem(item("Shortcut Mapper…", #selector(AppDelegate.showShortcutMapper(_:))))
         return menu
     }
 

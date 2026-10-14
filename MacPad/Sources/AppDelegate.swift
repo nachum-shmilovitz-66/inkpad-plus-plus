@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = MainMenu.build()
+        ShortcutStore.shared.apply(to: NSApp.mainMenu!)  // the user's shortcuts (MAC-43)
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -47,6 +48,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         mainWindow.confirmDiscardAll { sender.reply(toApplicationShouldTerminate: $0) }
         return .terminateLater
     }
+
+    // MARK: - Shortcut Mapper (MAC-43)
+
+    private(set) lazy var shortcutMapper = ShortcutMapperController()
+
+    @IBAction func showShortcutMapper(_ sender: Any?) { shortcutMapper.show(.mainMenu) }
+    @IBAction func showShortcutMapperMacros(_ sender: Any?) { shortcutMapper.show(.macros) }
 
     // MARK: - Macro (MAC-42)
 
