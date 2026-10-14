@@ -28,6 +28,7 @@ COMPONENT=$ROOT/build/MacPad++-component.pkg
 
 [[ -d build/deps/Scintilla.framework && -f build/deps/liblexilla.a ]] || scripts/build-deps.sh
 xcodegen generate --quiet
+swift scripts/gen-file-types.swift --check  # MAC-50: document types match langs.model.xml
 
 echo "== Unit tests"
 xcodebuild -quiet test -project MacPad++.xcodeproj -scheme MacPad++ \
