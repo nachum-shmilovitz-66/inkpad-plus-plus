@@ -99,7 +99,18 @@ Known approximations, to be closed in later milestones:
 - Font sizes are scaled by 4/3 (Windows 96 dpi points → macOS points); new files use LF, not CRLF.
 - No first-line language detection (`#!/bin/bash`, `<?xml`) yet.
 
-Next: milestone 2 (Tabs).
+Milestone 2: **done except MAC-25** (2026-10-14, release 0.1.8) — tabs, session restore, recent files,
+encoding/EOL pickers, encoding detection, tail -f, reload on external change, Save as Administrator
+with Touch ID, window placement. MAC-25 (full security review incl. the GitHub code) is the stage's
+last item by the user's choice.
+
+Privileged helper (MAC-24/MAC-28): `MacPadHelper` is installed by the `.pkg` — `scripts/pkg/postinstall`
+writes `/Library/LaunchDaemons/app.macpad.MacPad.helper.plist` and bootstraps it (no SMAppService, no
+Login Items step). The app pings it over XPC; Touch ID when it answers, the password prompt otherwise.
+Only team-96Y4LX7FVB-signed builds pass the code-signing requirements, so Debug builds always use the
+password path. Known gap, tracked in MAC-25: the user-presence check is in the app, not the helper.
+
+Next: milestone 3 (Find/Replace).
 
 ## Environment
 
