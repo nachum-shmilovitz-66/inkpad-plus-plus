@@ -6,6 +6,11 @@
 # Test overrides (never set by Installer): MACPAD_LAUNCHD_DIR, MACPAD_LAUNCHCTL, MACPAD_BIN_DIR,
 # MACPAD_SECURITY, MACPAD_HELPER_TOOLS_DIR.
 set -u
+# MAC-58: the test overrides below are honoured only when not running as root, so nothing in the
+# environment can choose what root runs or touches.
+if [ "$(/usr/bin/id -u)" = "0" ]; then
+  unset MACPAD_LAUNCHD_DIR MACPAD_LAUNCHCTL MACPAD_BIN_DIR MACPAD_SECURITY MACPAD_HELPER_TOOLS_DIR MACPAD_PKGUTIL
+fi
 
 LABEL="app.macpad.MacPad.helper"
 TARGET="${2:-/Applications}"                       # the package's install location
@@ -25,7 +30,7 @@ TOOL="$TARGET/MacPad++.app/Contents/MacOS/macpad"
 if [ -x "$TOOL" ]; then
   mkdir -p "$BIN"
   if [ ! -e "$BIN/macpad" ] && [ ! -L "$BIN/macpad" ]; then
-    ln -s "$TOOL" "$BIN/macpad"
+    ln -sfn "$TOOL" "$BIN/macpad"
   elif [ -L "$BIN/macpad" ] && readlink "$BIN/macpad" | grep -q 'MacPad++\.app/Contents/MacOS/macpad$'; then
     ln -sfn "$TOOL" "$BIN/macpad"
   else

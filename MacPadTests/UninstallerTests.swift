@@ -103,6 +103,20 @@ final class UninstallerTests: XCTestCase {
         XCTAssertTrue(exists(daemons.appendingPathComponent("\(label).plist")))
     }
 
+    /// MAC-58: as root the scripts ignore every test override.
+    func testRootScriptsIgnoreTheTestOverridesAsRoot() throws {
+        let scripts = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        for path in ["scripts/pkg/preinstall", "scripts/pkg/postinstall", "MacPad/Resources/uninstall.sh"] {
+            let text = try String(contentsOf: scripts.appendingPathComponent(path), encoding: .utf8)
+            let guardRange = try XCTUnwrap(text.range(of: "if [ \"$(/usr/bin/id -u)\" = \"0\" ]; then\n  unset "), path)
+            for variable in ["MACPAD_LAUNCHD_DIR", "MACPAD_LAUNCHCTL", "MACPAD_BIN_DIR", "MACPAD_SECURITY", "MACPAD_HELPER_TOOLS_DIR", "MACPAD_PKGUTIL"] {
+                if let use = text.range(of: "${\(variable)") {
+                    XCTAssertLessThan(guardRange.lowerBound, use.lowerBound, "\(path): \(variable) used before the guard")
+                }
+            }
+        }
+    }
+
     func testRunningItTwiceIsHarmless() throws {
         XCTAssertEqual(try run([app.path]), 0)
         XCTAssertEqual(try run([app.path]), 0)
@@ -131,7 +145,8 @@ final class UninstallerTests: XCTestCase {
     private func uninstaller(_ runner: FakeRunner, id: String? = "app.macpad.MacPad", domain: String? = nil) -> Uninstaller {
         Uninstaller(bundleIdentifier: id, appURL: URL(fileURLWithPath: "/Applications/MacPad++.app"),
                     scriptURL: URL(fileURLWithPath: "/Applications/MacPad++.app/Contents/Resources/uninstall.sh"),
-                    runner: runner, supportDirectory: root.appendingPathComponent("Support"), preferencesDomain: domain)
+                    runner: runner, supportDirectory: root.appendingPathComponent("Support"), preferencesDomain: domain,
+                    owner: { _ in 0 })
     }
 
     func testOnlyTheInstalledReleaseUninstalls() {
@@ -141,6 +156,13 @@ final class UninstallerTests: XCTestCase {
         var moved = uninstaller(runner)
         moved.appURL = URL(fileURLWithPath: "/tmp/build/Release/Other.app")
         XCTAssertFalse(moved.isAvailable)
+        // MAC-58: a copy outside /Applications, or one the user owns, never runs its script as root.
+        var downloaded = uninstaller(runner)
+        downloaded.appURL = URL(fileURLWithPath: "/Users/me/Downloads/MacPad++.app")
+        XCTAssertFalse(downloaded.isAvailable)
+        var userOwned = uninstaller(runner)
+        userOwned.owner = { _ in 501 }
+        XCTAssertFalse(userOwned.isAvailable)
         XCTAssertThrowsError(try uninstaller(runner, id: "app.macpad.MacPad.debug").run(removeSettings: false))
         XCTAssertEqual(runner.scripts, [])
         XCTAssertFalse(Uninstaller().isAvailable, "the test host is a Debug build")

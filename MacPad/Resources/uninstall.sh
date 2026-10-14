@@ -9,6 +9,11 @@
 # Test overrides (never set otherwise): MACPAD_LAUNCHD_DIR, MACPAD_LAUNCHCTL, MACPAD_BIN_DIR, MACPAD_PKGUTIL,
 # MACPAD_SECURITY, MACPAD_HELPER_TOOLS_DIR.
 set -u
+# MAC-58: the test overrides below are honoured only when not running as root, so nothing in the
+# environment can choose what root runs or touches.
+if [ "$(/usr/bin/id -u)" = "0" ]; then
+  unset MACPAD_LAUNCHD_DIR MACPAD_LAUNCHCTL MACPAD_BIN_DIR MACPAD_SECURITY MACPAD_HELPER_TOOLS_DIR MACPAD_PKGUTIL
+fi
 
 LABEL="app.macpad.MacPad.helper"
 APP="${1:-/Applications/MacPad++.app}"

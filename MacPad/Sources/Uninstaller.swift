@@ -17,8 +17,18 @@ struct Uninstaller {
     /// isolated test suite — never a name a test passes in for the release.
     var preferencesDomain: String? = AppEnvironment.isRunningTests ? nil : Bundle.main.bundleIdentifier
 
+    /// Who owns a path (MAC-58: only a root-owned app's script is run as root — a copy the user
+    /// can write could have had its uninstall.sh edited).
+    var owner: (URL) -> Int? = { url in
+        (try? FileManager.default.attributesOfItem(atPath: url.path)[.ownerAccountID] as? NSNumber)?.intValue
+    }
+
+    static let installedLocation = URL(fileURLWithPath: "/Applications/MacPad++.app")
+
     var isAvailable: Bool {
-        bundleIdentifier == Self.releaseIdentifier && appURL.lastPathComponent == "MacPad++.app" && scriptURL != nil
+        guard bundleIdentifier == Self.releaseIdentifier, appURL.standardizedFileURL == Self.installedLocation,
+              let scriptURL else { return false }
+        return owner(appURL) == 0 && owner(scriptURL) == 0
     }
 
     /// The root command: the script, given the app to remove (both quoted for /bin/sh).
