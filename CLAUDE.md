@@ -76,6 +76,13 @@ the app, a Developer ID *Installer* certificate signs the package.
 - A Debug build launched by hand shares the installed app's Recent Files and session (same bundle
   id). For manual checks launch it isolated: `open --env MACPAD_ISOLATED_STORAGE=1 -a <app> <file>`
   (tests are isolated automatically — MAC-23). Never quit or drive the user's own running MacPad++.
+- With two MacPad++ processes running (same bundle id), System Events' `set frontmost` on the test
+  instance can activate the *other* one, and menu clicks then land there (2026-10-14: a test script
+  typed into the user's instance). Before any UI scripting, list `pgrep -fl 'MacPad\+\+\.app/Contents/MacOS'`;
+  if anything besides the test instance runs, do not script the UI — ask the user first. After
+  activating, check `unix id of (first process whose frontmost is true)` equals the test pid.
+- The Debug build in `build/dd-app` is registered with LaunchServices, so Finder/Dock can launch
+  it instead of `/Applications/MacPad++.app` (same bundle id).
 
 ## Milestones (each one ends with a working app)
 

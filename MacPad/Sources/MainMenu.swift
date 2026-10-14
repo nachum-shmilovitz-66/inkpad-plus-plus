@@ -93,6 +93,10 @@ enum MainMenu {
         menu.addItem(item("Replace…", #selector(AppDelegate.showReplacePanel(_:)), "f", [.command, .option]))
         menu.addItem(item("Mark…", #selector(AppDelegate.showMarkPanel(_:)), "m", [.command, .shift]))
         menu.addItem(.separator())
+        menu.addItem(item("Search Results Window", #selector(MainWindowController.toggleSearchResultsWindow(_:)), functionKey(NSF7FunctionKey), []))
+        menu.addItem(item("Next Search Result", #selector(MainWindowController.nextSearchResult(_:)), functionKey(NSF4FunctionKey), []))
+        menu.addItem(item("Previous Search Result", #selector(MainWindowController.previousSearchResult(_:)), functionKey(NSF4FunctionKey), .shift))
+        menu.addItem(.separator())
         menu.addItem(styleSubmenu("Style All Occurrences of Token", #selector(MainWindowController.styleAllOccurrences(_:)), styles))
         menu.addItem(styleSubmenu("Style One Token", #selector(MainWindowController.styleOneToken(_:)), styles))
         menu.addItem(styleSubmenu("Clear Style", #selector(MainWindowController.clearStyle(_:)), styles + [(5, "Clear all Styles")]))
@@ -129,8 +133,10 @@ enum MainMenu {
 
     /// Search › Bookmark, also shown by a right-click in the bookmark margin. Notepad++'s
     /// Ctrl+F2 / F2 / Shift+F2 are ⌘F2 / F2 / ⇧F2.
+    private static func functionKey(_ key: Int) -> String { String(Character(Unicode.Scalar(UInt32(key))!)) }
+
     static func bookmarkMenu() -> NSMenu {
-        let f2 = String(Character(Unicode.Scalar(UInt32(NSF2FunctionKey))!))
+        let f2 = functionKey(NSF2FunctionKey)
         let menu = NSMenu(title: "Bookmark")
         menu.addItem(item("Toggle Bookmark", #selector(MainWindowController.toggleBookmark(_:)), f2, .command))
         menu.addItem(item("Next Bookmark", #selector(MainWindowController.nextBookmark(_:)), f2, []))

@@ -9,6 +9,19 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
 
     /// The editor the dialog acts on: the main window's visible tab.
     var editorProvider: () -> ScintillaView?
+    /// Find All's documents: the active one and every open one (MAC-32).
+    var documentsProvider: () -> (current: SearchDocument?, all: [SearchDocument]) = { (nil, []) }
+    /// Where Find All's results go: the main window's Search results panel.
+    var resultsSink: (SearchResultsBlock) -> Void = { _ in }
+    /// Notepad++ asks before replacing in every open document.
+    var confirmReplaceInOpenedFiles: () -> Bool = {
+        let alert = NSAlert()
+        alert.messageText = "Are you sure?"
+        alert.informativeText = "Are you sure you want to replace all occurrences in all open documents?"
+        alert.addButton(withTitle: "Replace All")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
     private let defaults: UserDefaults
 
     private(set) var options: SearchOptions { didSet { syncControls(); saveState() } }
@@ -40,6 +53,9 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
     let countButton = NSButton(title: "Count", target: nil, action: nil)
     let replaceButton = NSButton(title: "Replace", target: nil, action: nil)
     let replaceAllButton = NSButton(title: "Replace All", target: nil, action: nil)
+    let findAllCurrentButton = NSButton(title: "Find All in Current Document", target: nil, action: nil)
+    let findAllOpenedButton = NSButton(title: "Find All in All Opened Documents", target: nil, action: nil)
+    let replaceAllOpenedButton = NSButton(title: "Replace All in All Opened Documents", target: nil, action: nil)
     let statusLabel = NSTextField(labelWithString: "")
 
     private static let optionsKey = "FindOptions"
@@ -175,6 +191,67 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
         }
     }
 
+    /// Find All in Current Document / in All Opened Documents: the hits go to the Search results
+    /// panel, newest search on top. With hits the dialog steps aside, as Notepad++'s does.
+    func findAll(inOpenedDocuments: Bool) {
+        let text = findField.stringValue
+        guard !text.isEmpty else { return }
+        let (current, all) = documentsProvider()
+        let documents = inOpenedDocuments ? all : current.map { [$0] } ?? []
+        guard !documents.isEmpty else { return }
+        remember(find: text)
+        var opts = options
+        if inOpenedDocuments { opts.inSelection = false }
+        var files: [SearchResultsFile] = []
+        var total = 0
+        for document in documents {
+            switch SearchEngine(editor: document.editor).findAll(text, options: opts, path: document.path) {
+            case .invalidRegex:
+                report(SearchMessages.invalidRegex)
+                return
+            case .found(let hits) where !hits.isEmpty:
+                let count = hits.reduce(0) { $0 + $1.ranges.count }
+                files.append(SearchResultsFile(path: document.path, header: SearchResultsFormat.fileHeader(path: document.path, hits: count), hits: hits))
+                total += count
+            case .found:
+                break
+            }
+        }
+        let header = SearchResultsFormat.searchHeader(term: text, hits: total, files: files.count, searched: documents.count,
+                                                      inSelection: !inOpenedDocuments && isLimitedToSelection(documents[0].editor, opts),
+                                                      options: opts)
+        report(nil)
+        resultsSink(SearchResultsBlock(header: header, files: files, hitCount: total))
+        if total > 0 { close() }
+    }
+
+    /// In selection narrows Find All only when the selection is not the whole document.
+    private func isLimitedToSelection(_ editor: ScintillaView, _ opts: SearchOptions) -> Bool {
+        guard opts.inSelection, SearchEngine(editor: editor).hasUsableSelection else { return false }
+        return !(editor.send(SCI_GETSELECTIONSTART) == 0 && editor.send(SCI_GETSELECTIONEND) == editor.send(SCI_GETLENGTH))
+    }
+
+    /// Replace All in All Opened Documents: every editable document, whole, one undo step each.
+    func replaceAllInOpenedDocuments() {
+        let text = findField.stringValue, replacement = replaceField.stringValue
+        guard !text.isEmpty, confirmReplaceInOpenedFiles() else { return }
+        remember(find: text, replace: replacement)
+        var opts = options
+        opts.inSelection = false
+        opts.wrapAround = true
+        var total = 0
+        for document in documentsProvider().all where document.editor.send(SCI_GETREADONLY) == 0 {
+            switch SearchEngine(editor: document.editor).replaceAll(text, with: replacement, options: opts) {
+            case .invalidRegex:
+                report(SearchMessages.invalidRegex)
+                return
+            case .done(let n, _): total += n
+            case .readOnly: break
+            }
+        }
+        report(SearchMessages.replacedInOpenedFiles(total))
+    }
+
     /// Mark All: the Find Mark indicator on every match (bookmarking their lines when asked).
     func markAll() {
         guard let editor = editorProvider() else { return }
@@ -272,6 +349,9 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
         replaceButton.isHidden = !replacing
         replaceAllButton.isHidden = !replacing
         countButton.isHidden = newTab != .find
+        findAllCurrentButton.isHidden = newTab != .find
+        findAllOpenedButton.isHidden = newTab != .find
+        replaceAllOpenedButton.isHidden = !replacing
         findNextButton.isHidden = marking
         for view in [bookmarkLineBox, purgeBox, markAllButton, clearMarksButton, copyMarkedButton] as [NSView] {
             view.isHidden = !marking
@@ -349,6 +429,9 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
     @objc private func replaceClicked(_ sender: Any?) { replace() }
     @objc private func replaceAllClicked(_ sender: Any?) { replaceAll() }
     @objc private func markAllClicked(_ sender: Any?) { markAll() }
+    @objc private func findAllCurrentClicked(_ sender: Any?) { findAll(inOpenedDocuments: false) }
+    @objc private func findAllOpenedClicked(_ sender: Any?) { findAll(inOpenedDocuments: true) }
+    @objc private func replaceAllOpenedClicked(_ sender: Any?) { replaceAllInOpenedDocuments() }
     @objc private func clearMarksClicked(_ sender: Any?) { clearMarks() }
     @objc private func copyMarkedClicked(_ sender: Any?) { copyMarkedText() }
 
@@ -390,6 +473,12 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
         replaceButton.action = #selector(replaceClicked(_:))
         replaceAllButton.target = self
         replaceAllButton.action = #selector(replaceAllClicked(_:))
+        findAllCurrentButton.target = self
+        findAllCurrentButton.action = #selector(findAllCurrentClicked(_:))
+        findAllOpenedButton.target = self
+        findAllOpenedButton.action = #selector(findAllOpenedClicked(_:))
+        replaceAllOpenedButton.target = self
+        replaceAllOpenedButton.action = #selector(replaceAllOpenedClicked(_:))
         markAllButton.target = self
         markAllButton.action = #selector(markAllClicked(_:))
         clearMarksButton.target = self
@@ -432,13 +521,15 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
         left.alignment = .leading
         left.spacing = 16
 
-        let buttons = NSStackView(views: [findNextButton, countButton, replaceButton, replaceAllButton,
+        let buttons = NSStackView(views: [findNextButton, countButton, findAllCurrentButton, findAllOpenedButton,
+                                          replaceButton, replaceAllButton, replaceAllOpenedButton,
                                           markAllButton, clearMarksButton, copyMarkedButton])
         buttons.orientation = .vertical
         buttons.alignment = .leading
         buttons.spacing = 8
-        for button in [findNextButton, countButton, replaceButton, replaceAllButton, markAllButton, clearMarksButton, copyMarkedButton] {
-            button.widthAnchor.constraint(equalToConstant: 140).isActive = true
+        for button in [findNextButton, countButton, findAllCurrentButton, findAllOpenedButton, replaceButton, replaceAllButton,
+                       replaceAllOpenedButton, markAllButton, clearMarksButton, copyMarkedButton] {
+            button.widthAnchor.constraint(equalToConstant: 250).isActive = true
         }
 
         let body = NSStackView(views: [left, buttons])

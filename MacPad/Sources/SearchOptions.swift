@@ -182,6 +182,10 @@ enum SearchMessages {
         SearchStatus(kind: .message, text: n == 1 ? "Replace All: 1 occurrence was replaced \(scope.text)"
                                                   : "Replace All: \(n) occurrences were replaced \(scope.text)")
     }
+    static func replacedInOpenedFiles(_ n: Int) -> SearchStatus {
+        SearchStatus(kind: .message, text: n == 1 ? "Replace in Opened Files: 1 occurrence was replaced."
+                                                  : "Replace in Opened Files: \(n) occurrences were replaced.")
+    }
     static let replaceEndReached = SearchStatus(kind: .wrapped, text: "Replace: Reached document end, started from top.")
     static let replaceTopReached = SearchStatus(kind: .wrapped, text: "Replace: Reached document beginning, started from bottom.")
     static let replacedNextFound = SearchStatus(kind: .message, text: "Replace: 1 occurrence was replaced. The next occurrence found.")

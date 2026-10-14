@@ -12,6 +12,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private let tabBar = TabBarView()
     private let editorContainer = NSView()
     private let statusBar = StatusBar()
+    /// The editor above, Notepad++'s "Search results" panel docked below (MAC-32).
+    private let splitView = NSSplitView()
+    let searchResults = SearchResultsPanel()
 
     var activeTab: EditorTab? { tabs.active }
     var hasDirtyTabs: Bool { tabs.items.contains(where: \.isModified) }
@@ -29,21 +32,28 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         super.init(window: window)
 
         tabBar.translatesAutoresizingMaskIntoConstraints = false
-        editorContainer.translatesAutoresizingMaskIntoConstraints = false
+        splitView.translatesAutoresizingMaskIntoConstraints = false
         statusBar.translatesAutoresizingMaskIntoConstraints = false
+        splitView.isVertical = false
+        splitView.dividerStyle = .thin
+        splitView.addArrangedSubview(editorContainer)
+        splitView.addArrangedSubview(searchResults)
+        splitView.setHoldingPriority(.defaultLow - 1, forSubviewAt: 0)
+        splitView.setHoldingPriority(.defaultLow + 1, forSubviewAt: 1)
+        searchResults.isHidden = true
 
         let content = NSView()
         content.addSubview(tabBar)
-        content.addSubview(editorContainer)
+        content.addSubview(splitView)
         content.addSubview(statusBar)
         NSLayoutConstraint.activate([
             tabBar.topAnchor.constraint(equalTo: content.topAnchor),
             tabBar.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             tabBar.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            editorContainer.topAnchor.constraint(equalTo: tabBar.bottomAnchor),
-            editorContainer.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            editorContainer.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            editorContainer.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
+            splitView.topAnchor.constraint(equalTo: tabBar.bottomAnchor),
+            splitView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            splitView.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            splitView.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
             statusBar.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             statusBar.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             statusBar.bottomAnchor.constraint(equalTo: content.bottomAnchor),
@@ -51,6 +61,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         window.contentView = content
         window.delegate = self
 
+        searchResults.onOpen = { [weak self] hit, index in self?.openSearchHit(hit, rangeIndex: index) }
+        searchResults.onOpenPath = { [weak self] path in self?.openSearchPath(path) }
+        searchResults.onClose = { [weak self] in self?.setSearchResultsVisible(false) }
         tabBar.onSelect = { [weak self] index in self?.selectTab(at: index) }
         tabBar.onClose = { [weak self] index in self?.closeTab(at: index) }
         statusBar.onEncodingClick = { [weak self] label in self?.showEncodingMenu(at: label) }
@@ -322,6 +335,79 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     @IBAction func zoomInText(_ sender: Any?) { activeTab?.editor.send(SCI_ZOOMIN) }
     @IBAction func zoomOutText(_ sender: Any?) { activeTab?.editor.send(SCI_ZOOMOUT) }
     @IBAction func restoreTextZoom(_ sender: Any?) { activeTab?.editor.send(SCI_SETZOOM, 0) }
+
+    // MARK: - Search results (MAC-32)
+
+    /// What Find All searches: every tab, named by its file path or, untitled, by its tab name.
+    var searchDocuments: [SearchDocument] { tabs.items.map(Self.searchDocument) }
+    var activeSearchDocument: SearchDocument? { activeTab.map(Self.searchDocument) }
+
+    private static func searchDocument(_ tab: EditorTab) -> SearchDocument {
+        SearchDocument(editor: tab.editor, path: tab.fileURL?.standardizedFileURL.path ?? tab.displayName)
+    }
+
+    var isSearchResultsVisible: Bool { !searchResults.isHidden }
+
+    func showSearchResults(_ block: SearchResultsBlock) {
+        setSearchResultsVisible(true)
+        searchResults.show(block)
+        if block.hitCount > 0 { window?.makeFirstResponder(searchResults.pane) }
+    }
+
+    func setSearchResultsVisible(_ visible: Bool) {
+        guard visible != isSearchResultsVisible else { return }
+        searchResults.isHidden = !visible
+        splitView.adjustSubviews()
+        if visible {
+            let height = splitView.bounds.height
+            splitView.setPosition((height * 0.68).rounded(), ofDividerAt: 0)
+        } else {
+            activeTab.map { window?.makeFirstResponder($0.editor) }
+        }
+    }
+
+    /// Opens the hit's document (switching tab, or opening the file again) and selects the hit.
+    func openSearchHit(_ hit: SearchResultHit, rangeIndex: Int) {
+        guard let tab = tabFor(searchPath: hit.path) else { NSSound.beep(); return }
+        let editor = tab.editor
+        let length = editor.send(SCI_GETLENGTH)
+        let range = hit.ranges[max(0, min(rangeIndex, hit.ranges.count - 1))]
+        let start = min(range.lowerBound, length), end = min(range.upperBound, length)
+        editor.send(SCI_ENSUREVISIBLE, editor.send(SCI_LINEFROMPOSITION, start))
+        editor.send(SCI_GOTOPOS, end)
+        editor.send(SCI_SETANCHOR, start)
+        editor.send(SCI_SCROLLRANGE, start, end)
+        window?.makeFirstResponder(editor)
+    }
+
+    func openSearchPath(_ path: String) { _ = tabFor(searchPath: path) }
+
+    private func tabFor(searchPath path: String) -> EditorTab? {
+        if let index = tabs.firstIndex(where: { Self.searchDocument($0).path == path }) {
+            selectTab(at: index)
+            return activeTab
+        }
+        guard FileManager.default.fileExists(atPath: path) else { return nil }
+        open(URL(fileURLWithPath: path))
+        return tabs.items.first { $0.fileURL?.standardizedFileURL.path == path }
+    }
+
+    @IBAction func toggleSearchResultsWindow(_ sender: Any?) {
+        if isSearchResultsVisible && window?.firstResponder.map({ ($0 as? NSView)?.isDescendant(of: searchResults) == true }) == true {
+            setSearchResultsVisible(false)
+        } else {
+            setSearchResultsVisible(true)
+            window?.makeFirstResponder(searchResults.pane)
+        }
+    }
+    @IBAction func nextSearchResult(_ sender: Any?) {
+        setSearchResultsVisible(true)
+        searchResults.step(forward: true)
+    }
+    @IBAction func previousSearchResult(_ sender: Any?) {
+        setSearchResultsVisible(true)
+        searchResults.step(forward: false)
+    }
 
     // MARK: - Search › token styles and bookmarks (MAC-31)
 

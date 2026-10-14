@@ -301,8 +301,9 @@ final class MarkTabTests: XCTestCase {
         for tab in [FindReplaceController.Tab.find, .replace, .mark] {
             c.setTab(tab)
             content.layoutSubtreeIfNeeded()
-            for button in [c.findNextButton, c.countButton, c.replaceButton, c.replaceAllButton,
-                           c.markAllButton, c.clearMarksButton, c.copyMarkedButton] where !button.isHidden {
+            for button in [c.findNextButton, c.countButton, c.findAllCurrentButton, c.findAllOpenedButton, c.replaceButton,
+                           c.replaceAllButton, c.replaceAllOpenedButton, c.markAllButton, c.clearMarksButton,
+                           c.copyMarkedButton] where !button.isHidden {
                 let frame = button.convert(button.bounds, to: content)
                 XCTAssertLessThanOrEqual(frame.maxX, content.bounds.width - 12, "\(button.title) on \(tab)")
             }

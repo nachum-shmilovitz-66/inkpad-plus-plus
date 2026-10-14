@@ -6,7 +6,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Notepad++ is a single-window editor: every file is a tab in this window.
     private(set) lazy var mainWindow = MainWindowController()
     /// Notepad++'s Find / Replace dialog: one for the app, acting on the visible tab.
-    private(set) lazy var findReplace = FindReplaceController { [weak self] in self?.mainWindow.activeTab?.editor }
+    private(set) lazy var findReplace: FindReplaceController = {
+        let controller = FindReplaceController { [weak self] in self?.mainWindow.activeTab?.editor }
+        controller.documentsProvider = { [weak self] in
+            (self?.mainWindow.activeSearchDocument, self?.mainWindow.searchDocuments ?? [])
+        }
+        controller.resultsSink = { [weak self] block in self?.mainWindow.showSearchResults(block) }
+        return controller
+    }()
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = MainMenu.build()

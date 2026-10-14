@@ -102,7 +102,8 @@ struct SearchEngine {
 
     // MARK: - Count, Replace All
 
-    enum AllOperation { case count, replaceAll }
+    /// Count (and Mark, which counts and paints), Replace All, and Find All (the results pane).
+    enum AllOperation { case count, replaceAll, findAll }
 
     enum AllOutcome: Equatable {
         case done(Int, scope: SearchScope)
@@ -118,6 +119,8 @@ struct SearchEngine {
         if options.inSelection && hasUsableSelection {
             return (selStart..<selEnd, .selection)
         }
+        // Find All always covers the whole document unless limited to the selection.
+        if operation == .findAll { return (0..<length, .entireFile) }
         if options.wrapAround { return (0..<length, .entireFile) }
         return options.effectiveBackward ? (0..<selEnd, .startToCaret) : (selStart..<length, .caretToEnd)
     }
@@ -146,7 +149,7 @@ struct SearchEngine {
         guard !text.isEmpty else { return .done(0, scope: scope) }
         let pattern = bytes(options.prepared(text))
         var flags = options.searchFlags | Int(SCFIND_REGEXP_SKIPCRLFASONE)
-        if operation == .replaceAll { flags |= Int(SCFIND_REGEXP_EMPTYMATCH_NOTAFTERMATCH) }
+        if operation != .count { flags |= Int(SCFIND_REGEXP_EMPTYMATCH_NOTAFTERMATCH) }
 
         if operation == .replaceAll { editor.send(SCI_BEGINUNDOACTION) }
         defer { if operation == .replaceAll { editor.send(SCI_ENDUNDOACTION) } }
