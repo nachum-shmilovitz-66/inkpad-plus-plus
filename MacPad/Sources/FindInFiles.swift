@@ -62,6 +62,13 @@ enum FileCollector {
                       isCancelled: () -> Bool = { false }, found: (Int, URL) -> Void = { _, _ in }) -> [URL]? {
         var result: [URL] = []
         var visited = Set<String>()
+        // MAC-61: links are followed only while they stay inside the folder searched — a link
+        // to ~ inside a cloned repository must not take Replace in Files into the home folder.
+        let rootResolved = root.resolvingSymlinksInPath().path
+        func isInside(_ url: URL) -> Bool {
+            let resolved = url.resolvingSymlinksInPath().path
+            return resolved == rootResolved || resolved.hasPrefix(rootResolved + "/")
+        }
         let keys: [URLResourceKey] = [.isDirectoryKey, .isHiddenKey, .isSymbolicLinkKey]
 
         func walk(_ directory: URL, level: Int) -> Bool {
@@ -75,6 +82,7 @@ enum FileCollector {
                 let values = try? entry.resourceValues(forKeys: Set(keys))
                 var isDirectory = values?.isDirectory ?? false
                 if values?.isSymbolicLink == true {
+                    guard isInside(url) else { continue }
                     var flag: ObjCBool = false
                     isDirectory = FileManager.default.fileExists(atPath: url.path, isDirectory: &flag) && flag.boolValue
                 }
@@ -228,14 +236,11 @@ final class FindInFilesJob {
         }
     }
 
-    /// Writes in the file's own encoding (BOM included), keeping its permissions.
+    /// Writes in the file's own encoding (BOM included), through a link to the file it points at,
+    /// keeping that file's permissions (MAC-61).
     private func write(_ utf8: Data, as encoding: TextEncoding, to url: URL) -> Bool {
         do {
-            let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
-            try TextFile.encode(utf8, as: encoding).write(to: url, options: .atomic)
-            if let permissions = attributes?[.posixPermissions] {
-                try? FileManager.default.setAttributes([.posixPermissions: permissions], ofItemAtPath: url.path)
-            }
+            try FileWriter.write(TextFile.encode(utf8, as: encoding), to: url)
             return true
         } catch {
             return false

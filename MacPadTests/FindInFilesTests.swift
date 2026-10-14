@@ -121,6 +121,93 @@ final class FileCollectorTests: XCTestCase {
     }
 }
 
+extension FileCollectorTests {
+    /// Regression (MAC-61): a link to a folder or file outside the searched folder is not followed,
+    /// so Replace in Files cannot reach (or copy) anything outside it.
+    func testLinksLeavingTheFolderAreNotFollowed() throws {
+        let t = Tree()
+        t.file("a/x.txt", "x")
+        let outside = FileManager.default.temporaryDirectory.appendingPathComponent("outside-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: outside) }
+        try Data("secret".utf8).write(to: outside.appendingPathComponent("secret.txt"))
+        try FileManager.default.createSymbolicLink(at: t.root.appendingPathComponent("docs"), withDestinationURL: outside)
+        try FileManager.default.createSymbolicLink(at: t.root.appendingPathComponent("leak.txt"),
+                                                   withDestinationURL: outside.appendingPathComponent("secret.txt"))
+        try FileManager.default.createSymbolicLink(at: t.root.appendingPathComponent("same.txt"),
+                                                   withDestinationURL: t.root.appendingPathComponent("a/x.txt"))
+        let files = FileCollector.files(in: t.root, filter: FileFilter(""), recursive: true, includeHiddenFolders: false) ?? []
+        XCTAssertFalse(files.contains { $0.resolvingSymlinksInPath().path.hasPrefix(outside.resolvingSymlinksInPath().path) },
+                       "nothing outside the folder")
+        XCTAssertTrue(files.contains { $0.lastPathComponent == "same.txt" }, "a link inside the folder is still searched")
+    }
+}
+
+/// MAC-61 / MAC-62: writing a document back through links and hard links.
+final class FileWriterTests: XCTestCase {
+    private var dir: URL!
+
+    override func setUpWithError() throws {
+        dir = FileManager.default.temporaryDirectory.appendingPathComponent("filewriter-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws { try? FileManager.default.removeItem(at: dir) }
+
+    private func mode(_ url: URL) throws -> Int {
+        (try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as! NSNumber).intValue
+    }
+
+    func testALinkStaysALinkAndItsFileKeepsItsMode() throws {
+        let real = dir.appendingPathComponent("zshrc")
+        try Data("old".utf8).write(to: real)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: real.path)
+        let link = dir.appendingPathComponent(".zshrc")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+        try FileWriter.write(Data("new".utf8), to: link)
+        XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: link.path), real.path, "still a link")
+        XCTAssertEqual(try String(contentsOf: real, encoding: .utf8), "new")
+        XCTAssertEqual(try mode(real), 0o600, "never the link's 0755")
+    }
+
+    func testHardLinksKeepSharingTheFile() throws {
+        let a = dir.appendingPathComponent("a.txt"), b = dir.appendingPathComponent("b.txt")
+        try Data("old".utf8).write(to: a)
+        try FileManager.default.linkItem(at: a, to: b)
+        try FileWriter.write(Data("new".utf8), to: a)
+        XCTAssertEqual(try String(contentsOf: b, encoding: .utf8), "new", "the other name sees it too")
+    }
+
+    func testAPlainFileKeepsItsMode() throws {
+        let f = dir.appendingPathComponent("f.sh")
+        try Data("old".utf8).write(to: f)
+        try FileManager.default.setAttributes([.posixPermissions: 0o750], ofItemAtPath: f.path)
+        try FileWriter.write(Data("new longer".utf8), to: f)
+        XCTAssertEqual(try mode(f), 0o750)
+        XCTAssertEqual(try String(contentsOf: f, encoding: .utf8), "new longer")
+    }
+
+    /// Regression (MAC-62): saving ~/.zshrc -> dotfiles/zshrc replaced the link with a 0755 copy.
+    func testSavingADocumentOpenedThroughALink() throws {
+        let real = dir.appendingPathComponent("zshrc")
+        try Data("export A=1\n".utf8).write(to: real)
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: real.path)
+        let link = dir.appendingPathComponent(".zshrc")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+        let tab = EditorTab(untitledNumber: 1)
+        defer { tab.detach() }
+        try tab.load(link)
+        tab.editor.send(SCI_DOCUMENTEND)
+        tab.editor.send(SCI_APPENDTEXT, 11, string: "export B=2\n")
+        var saved: Bool?
+        tab.save { saved = $0 }
+        XCTAssertEqual(saved, true)
+        XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: link.path), real.path)
+        XCTAssertEqual(try String(contentsOf: real, encoding: .utf8), "export A=1\nexport B=2\n")
+        XCTAssertEqual(try mode(real), 0o644)
+    }
+}
+
 final class FindInFilesJobTests: XCTestCase {
     func testFindAllAcrossEncodingsListsEachFileWithHits() {
         let t = Tree()

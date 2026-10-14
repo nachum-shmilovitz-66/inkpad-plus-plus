@@ -208,7 +208,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         let data: Data
         do {
             data = try TextFile.encode(editor.utf8Bytes(), as: encoding)
-            try data.write(to: url, options: .atomic)
+            try FileWriter.write(data, to: url)  // through links, keeping the mode (MAC-62)
         } catch {
             if PrivilegedSave.isPermissionDenied(error),
                let bytes = try? TextFile.encode(editor.utf8Bytes(), as: encoding) {
