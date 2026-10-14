@@ -4,7 +4,7 @@ A native macOS port of [Notepad++](https://notepad-plus-plus.org/) v8.9.8.1: Swi
 the same Scintilla/Lexilla editing engine Notepad++ uses, reading Notepad++'s own language, styler
 and theme files unchanged. Not affiliated with the Notepad++ project.
 
-Current release: **0.1.12** (milestones 1–5 of 7 done).
+Current release: **0.1.13** (milestones 1–6 of 7 done).
 See `CLAUDE.md` for the roadmap and known gaps.
 
 ## Features
@@ -71,8 +71,18 @@ See `CLAUDE.md` for the roadmap and known gaps.
 - Shortcut Mapper: every menu command and macro with its shortcut, filter, modify / clear / reset,
   conflict warnings.
 
+### Panels and views
+- Function List: functions and classes of the current file from Notepad++'s parsers, sort A to Z,
+  search box, double-click to jump; the caret's function stays selected.
+- Document Map: the whole document zoomed out beside the editor; click, drag or scroll it to move.
+- Folder as Workspace: folders as a tree; open files, Find in Files in a folder, copy paths, reveal
+  in Finder, open in Terminal; remembered across launches.
+- Split view: Move or Clone a document to the other view (a clone is the same document in a second
+  editor), each view with its own tabs, synchronized vertical / horizontal scrolling; both views
+  kept in the session.
+
 ### Coming next
-- Function List, Document Map, Folder as Workspace and split view (milestone 6).
+- Packaging: file-type associations and a signed release (milestone 7).
 - Not ported yet: User Defined Languages, "Find in these search results…", printing, backups and
   auto-completion settings. Notepad++ plugins (Windows DLLs) cannot run on macOS.
 

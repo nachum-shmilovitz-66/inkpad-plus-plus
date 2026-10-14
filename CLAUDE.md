@@ -150,7 +150,16 @@ Application Support/macros.json), Shortcut Mapper (MAC-43, `ShortcutStore` overr
 "action#tag"). Edit commands follow Notepad++'s quirks (column-0 selection rule, sorting the
 trailing empty line, Remove Empty Lines dropping the final EOL).
 
-Next: milestone 6 (Panels — Function List, Document Map, Folder as Workspace, split view).
+Milestone 6: **done** (2026-10-14, release 0.1.13) — docked panels in `dockSplit` (left dock |
+documents | right dock, `DockPanel` title bars): Function List (MAC-44, `FunctionListParser` ports
+Notepad++'s Unit/Zone/Mix parsers; matches all 40 of its unit-test fixtures), Document Map (MAC-45,
+a second ScintillaView sharing the document pointer at zoom -10), Folder as Workspace (MAC-46),
+split view (MAC-47: two `EditorPane`s; a clone is a second `EditorTab` on the same document
+pointer — the original owns saving and file watching, `adoptDocumentState` copies path / encoding /
+language to the twin; the session keeps `subDocuments`). Not ported: Project panels, Clipboard
+History, Character Panel, docking panels by drag, Move to New Instance.
+
+Next: MAC-25 (security review), then milestone 7 (Packaging).
 
 ## Environment
 
