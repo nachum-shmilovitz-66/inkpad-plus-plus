@@ -4,9 +4,78 @@ A native macOS port of [Notepad++](https://notepad-plus-plus.org/) v8.9.8.1: Swi
 the same Scintilla/Lexilla editing engine Notepad++ uses, reading Notepad++'s own language, styler
 and theme files unchanged. Not affiliated with the Notepad++ project.
 
-Status: milestone 1 of 7 (skeleton): open/save, syntax colouring by extension, Notepad++ default
-theme, folding, encodings (UTF-8/BOM, UTF-16, ANSI) with byte-exact save. See `CLAUDE.md` for the
-roadmap and known gaps.
+Current release: **0.1.11** (milestones 1–4 of 7 done; milestone 5, edit commands, in progress).
+See `CLAUDE.md` for the roadmap and known gaps.
+
+## Features
+
+### Editing engine and files
+- Scintilla + Lexilla, the engine Notepad++ uses: folding, brace matching, multi-caret and column
+  (rectangular) selection, word wrap, zoom, show all characters.
+- Opens and saves UTF-8 (with or without BOM), UTF-16 LE/BE and ANSI / 46 legacy code pages
+  byte-for-byte; encoding detection as Notepad++ does it (uchardet); line endings kept as found.
+- Encoding and line-ending pickers in the status bar convert the document.
+- Finder "Open With" and double-click; untitled "new N" documents.
+- Save as Administrator for protected files (e.g. `/etc/hosts`): one Touch ID prompt through a
+  privileged helper the installer sets up, with the password prompt as fallback.
+- Reload prompt when a file changes on disk; deleted files stay open as unsaved.
+- Monitoring (tail -f): a read-only tab that follows a growing file, including log rotation.
+
+### Tabs and session
+- One window, documents as tabs; the session (open files, caret, scroll, bookmarks, language) is
+  restored at launch; Recent Files.
+- Read-only in MacPad++ (per document or all) and the file's own Finder lock, shown with 🔒.
+
+### Search
+- Find / Replace / Mark panel: Normal, Extended (`\n \t \x41 …`) and Regular expression modes with
+  Notepad++'s Boost regex engine (lookbehind, `\R`, atomic groups, named groups, Unicode `\w`);
+  match case, whole word, wrap around, backward, in selection, ". matches newline"; history.
+- Count, Replace, Replace All (one undo step), Find All in the current or all open documents,
+  Replace All in all open documents.
+- Search results panel: Notepad++'s layout and colours, newest search on top, double-click / F4
+  to step through hits, copy lines or paths.
+- Find in Files / Replace in Files: filters (`*.cpp *.h !*.log`, folder exclusions `!/tests`,
+  `!+/log*`), sub-folders, hidden folders, progress with Cancel; files keep their encoding.
+- Mark All, five token highlight styles with jump up/down, bookmarks (toggle, next/previous,
+  cut/copy/paste/remove bookmarked lines).
+- Incremental search bar (match count, highlight all) and Go To line or offset.
+
+### Languages and appearance
+- Language menu with Notepad++'s 93 languages; syntax colouring and per-language lexer setup as in
+  Notepad++ (JavaScript, PHP and VBScript inside HTML, substyles, folding properties).
+- Language from the extension, the file name (`Makefile`, `PKGBUILD` …) or the first line
+  (`#!/bin/bash`, `<?xml` …).
+- Themes: Notepad++'s 22 themes, and any Notepad++ theme file dropped into the themes folder.
+- Style Configurator: colours, fonts, bold/italic/underline, user keywords and extensions, Global
+  override — live preview, saved like Notepad++'s stylers.xml.
+- Settings window: new document defaults, current line, caret, wrap, virtual space, fold marker
+  style, line numbers, edge columns, padding, indentation per language, search options, and more.
+
+### Edit commands
+- Line Operations: duplicate, remove (consecutive) duplicate lines, split, join, move up/down,
+  remove empty lines, insert blank line above/below, reverse, randomize, and sort — lexicographic,
+  ignoring case, locale, integers, decimals (comma or dot), by length — ascending or descending,
+  also by the columns of a column selection.
+- Blank Operations: trim leading/trailing, EOL to space, tab ↔ space conversion.
+- Convert case (UPPER, lower, Proper, Sentence and their "blend" forms, iNVERT, ranDOm), indent,
+  line and block comment/uncomment with each language's comment tokens.
+- Column Editor: insert text or number sequences (dec / hex / oct / bin, leading zeros or spaces)
+  down a column.
+- Copy the current file's path, name or folder, or all open files' names or paths.
+- Begin/End Select (also in column mode).
+
+### Coming next
+- Macros and the Shortcut Mapper (milestone 5), then Function List, Document Map, Folder as
+  Workspace and split view (milestone 6).
+- Not ported yet: User Defined Languages, "Find in these search results…", printing, backups and
+  auto-completion settings. Notepad++ plugins (Windows DLLs) cannot run on macOS.
+
+### Keyboard shortcuts that differ from Notepad++
+macOS reserves some of Notepad++'s keys, so these use Mac equivalents: Find Next / Previous ⌘G /
+⇧⌘G (F3 / Shift+F3), Replace ⌥⌘F (Ctrl+H), Mark ⇧⌘M (Ctrl+M), Find in Files ⇧⌘F, Go To ⌘L
+(Ctrl+G), Incremental Search ⌥⌘I, Toggle Comment ⌘/ (Ctrl+Q), Column Editor ⌥⌘C (Alt+C),
+Move Line Up / Down ⌥⌘↑ / ⌥⌘↓, Settings ⌘,. Bookmarks (F2), search results (F4) and the results
+window (F7) keep Notepad++'s keys.
 
 ## Build (macOS on Apple Silicon, Xcode, [XcodeGen](https://github.com/yonaskolb/XcodeGen))
 
