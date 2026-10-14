@@ -20,6 +20,38 @@ struct SearchOptions: Codable, Equatable {
     /// Mark tab: bookmark the lines of the matches, and clear earlier marks first.
     var bookmarkLine = false
     var purge = false
+    /// Find in Files tab.
+    var inAllSubfolders = true
+    var inHiddenFolders = false
+
+    init(mode: SearchMode = .normal, matchCase: Bool = false, wholeWord: Bool = false, wrapAround: Bool = true,
+         backward: Bool = false, inSelection: Bool = false, dotMatchesNewline: Bool = false) {
+        self.mode = mode
+        self.matchCase = matchCase
+        self.wholeWord = wholeWord
+        self.wrapAround = wrapAround
+        self.backward = backward
+        self.inSelection = inSelection
+        self.dotMatchesNewline = dotMatchesNewline
+    }
+
+    /// Options saved by an older version lack the newer keys: those keep their defaults instead
+    /// of throwing every saved option away.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = SearchOptions()
+        mode = try c.decodeIfPresent(SearchMode.self, forKey: .mode) ?? d.mode
+        matchCase = try c.decodeIfPresent(Bool.self, forKey: .matchCase) ?? d.matchCase
+        wholeWord = try c.decodeIfPresent(Bool.self, forKey: .wholeWord) ?? d.wholeWord
+        wrapAround = try c.decodeIfPresent(Bool.self, forKey: .wrapAround) ?? d.wrapAround
+        backward = try c.decodeIfPresent(Bool.self, forKey: .backward) ?? d.backward
+        inSelection = try c.decodeIfPresent(Bool.self, forKey: .inSelection) ?? d.inSelection
+        dotMatchesNewline = try c.decodeIfPresent(Bool.self, forKey: .dotMatchesNewline) ?? d.dotMatchesNewline
+        bookmarkLine = try c.decodeIfPresent(Bool.self, forKey: .bookmarkLine) ?? d.bookmarkLine
+        purge = try c.decodeIfPresent(Bool.self, forKey: .purge) ?? d.purge
+        inAllSubfolders = try c.decodeIfPresent(Bool.self, forKey: .inAllSubfolders) ?? d.inAllSubfolders
+        inHiddenFolders = try c.decodeIfPresent(Bool.self, forKey: .inHiddenFolders) ?? d.inHiddenFolders
+    }
 
     /// Whole word and backward direction are disabled in Regex mode, ". matches newline" is
     /// enabled only there (Notepad++'s regexBackward4PowerUser is off by default).
@@ -185,6 +217,10 @@ enum SearchMessages {
     static func replacedInOpenedFiles(_ n: Int) -> SearchStatus {
         SearchStatus(kind: .message, text: n == 1 ? "Replace in Opened Files: 1 occurrence was replaced."
                                                   : "Replace in Opened Files: \(n) occurrences were replaced.")
+    }
+    static func replacedInFiles(_ n: Int) -> SearchStatus {
+        SearchStatus(kind: .message, text: n == 1 ? "Replace in Files: 1 occurrence was replaced."
+                                                  : "Replace in Files: \(n) occurrences were replaced.")
     }
     static let replaceEndReached = SearchStatus(kind: .wrapped, text: "Replace: Reached document end, started from top.")
     static let replaceTopReached = SearchStatus(kind: .wrapped, text: "Replace: Reached document beginning, started from bottom.")

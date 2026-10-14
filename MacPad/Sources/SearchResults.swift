@@ -207,6 +207,8 @@ struct SearchResultsModel: Equatable {
 struct SearchDocument {
     let editor: ScintillaView
     let path: String
+    /// Saves the document (Replace in Files writes what it changed).
+    var save: (() -> Void)? = nil
 }
 
 extension SearchEngine {

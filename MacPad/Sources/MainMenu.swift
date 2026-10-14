@@ -91,6 +91,7 @@ enum MainMenu {
         menu.addItem(item("Use Selection for Find", #selector(AppDelegate.useSelectionForFind(_:)), "e"))
         menu.addItem(.separator())
         menu.addItem(item("Replace…", #selector(AppDelegate.showReplacePanel(_:)), "f", [.command, .option]))
+        menu.addItem(item("Find in Files…", #selector(AppDelegate.showFindInFilesPanel(_:)), "f", [.command, .shift]))
         menu.addItem(item("Mark…", #selector(AppDelegate.showMarkPanel(_:)), "m", [.command, .shift]))
         menu.addItem(.separator())
         menu.addItem(item("Search Results Window", #selector(MainWindowController.toggleSearchResultsWindow(_:)), functionKey(NSF7FunctionKey), []))

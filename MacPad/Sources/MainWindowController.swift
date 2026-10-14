@@ -343,7 +343,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     var activeSearchDocument: SearchDocument? { activeTab.map(Self.searchDocument) }
 
     private static func searchDocument(_ tab: EditorTab) -> SearchDocument {
-        SearchDocument(editor: tab.editor, path: tab.fileURL?.standardizedFileURL.path ?? tab.displayName)
+        SearchDocument(editor: tab.editor, path: tab.fileURL?.standardizedFileURL.path ?? tab.displayName,
+                       save: { [weak tab] in tab?.save() })
     }
 
     var isSearchResultsVisible: Bool { !searchResults.isHidden }

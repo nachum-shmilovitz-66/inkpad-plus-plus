@@ -1,11 +1,11 @@
 import AppKit
 
-/// Notepad++'s Find / Replace dialog (MAC-30, Mark tab MAC-31): one modeless panel with Find,
-/// Replace and Mark tabs,
+/// Notepad++'s Find / Replace dialog (MAC-30, Mark tab MAC-31, Find in Files MAC-33): one
+/// modeless panel with Find, Replace, Find in Files and Mark tabs,
 /// the same options and search modes, and the status line under the buttons. The menu's Find
 /// Next / Find Previous use the panel's text and options even while it is closed, as F3 does.
 final class FindReplaceController: NSWindowController, NSWindowDelegate, NSComboBoxDelegate {
-    enum Tab: Int { case find, replace, mark }
+    enum Tab: Int { case find, replace, findInFiles, mark }
 
     /// The editor the dialog acts on: the main window's visible tab.
     var editorProvider: () -> ScintillaView?
@@ -14,6 +14,20 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
     /// Where Find All's results go: the main window's Search results panel.
     var resultsSink: (SearchResultsBlock) -> Void = { _ in }
     /// Notepad++ asks before replacing in every open document.
+    /// Notepad++'s Replace in Files question; Cancel is the default answer.
+    var confirmReplaceInFiles: (_ directory: String, _ filters: String) -> Bool = { directory, filters in
+        let alert = NSAlert()
+        alert.messageText = "Are you sure?"
+        alert.informativeText = "Are you sure you want to replace all occurrences in:\n\n\(directory)\n\nFor file type:\n\n\(filters)"
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Replace")
+        return alert.runModal() == .alertSecondButtonReturn
+    }
+    /// Find in Files runs a few files per main-loop turn behind a progress window; the tests run
+    /// it in one go.
+    var runsFindInFilesSynchronously = false
+    private var progress: FindInFilesProgress?
+    private(set) var runningJob: FindInFilesJob?
     var confirmReplaceInOpenedFiles: () -> Bool = {
         let alert = NSAlert()
         alert.messageText = "Are you sure?"
@@ -27,14 +41,25 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
     private(set) var options: SearchOptions { didSet { syncControls(); saveState() } }
     private(set) var findHistory: FindHistory
     private(set) var replaceHistory: FindHistory
+    private(set) var filterHistory: FindHistory
+    private(set) var directoryHistory: FindHistory
     private(set) var status: SearchStatus?
     private(set) var tab: Tab = .find
 
     // Controls (internal so the tests can drive the dialog the way a user does).
-    let tabs = NSSegmentedControl(labels: ["Find", "Replace", "Mark"], trackingMode: .selectOne, target: nil, action: nil)
+    let tabs = NSSegmentedControl(labels: ["Find", "Replace", "Find in Files", "Mark"], trackingMode: .selectOne, target: nil, action: nil)
     let findField = NSComboBox()
     let replaceField = NSComboBox()
     private let replaceLabel = NSTextField(labelWithString: "Replace with:")
+    let filtersField = NSComboBox()
+    let directoryField = NSComboBox()
+    let browseButton = NSButton(title: "…", target: nil, action: nil)
+    let fillDirectoryButton = NSButton(title: "<<", target: nil, action: nil)
+    let subfoldersBox = NSButton(checkboxWithTitle: "In all sub-folders", target: nil, action: nil)
+    let hiddenFoldersBox = NSButton(checkboxWithTitle: "In hidden folders", target: nil, action: nil)
+    let findInFilesButton = NSButton(title: "Find All", target: nil, action: nil)
+    let replaceInFilesButton = NSButton(title: "Replace in Files", target: nil, action: nil)
+    private var fieldsGrid: NSGridView?
     let inSelectionBox = NSButton(checkboxWithTitle: "In selection", target: nil, action: nil)
     let backwardBox = NSButton(checkboxWithTitle: "Backward direction", target: nil, action: nil)
     let wholeWordBox = NSButton(checkboxWithTitle: "Match whole word only", target: nil, action: nil)
@@ -61,6 +86,8 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
     private static let optionsKey = "FindOptions"
     private static let findHistoryKey = "FindHistory"
     private static let replaceHistoryKey = "ReplaceHistory"
+    private static let filterHistoryKey = "FindInFilesFilterHistory"
+    private static let directoryHistoryKey = "FindInFilesDirectoryHistory"
 
     init(defaults: UserDefaults = AppEnvironment.defaults, editorProvider: @escaping () -> ScintillaView?) {
         self.defaults = defaults
@@ -70,6 +97,8 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
         options.inSelection = false  // Notepad++ decides In selection from the selection each time
         findHistory = FindHistory(defaults.stringArray(forKey: Self.findHistoryKey) ?? [])
         replaceHistory = FindHistory(defaults.stringArray(forKey: Self.replaceHistoryKey) ?? [])
+        filterHistory = FindHistory(defaults.stringArray(forKey: Self.filterHistoryKey) ?? [])
+        directoryHistory = FindHistory(defaults.stringArray(forKey: Self.directoryHistoryKey) ?? [])
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 560, height: 300),
                             styleMask: [.titled, .closable, .utilityWindow], backing: .buffered, defer: true)
         panel.isFloatingPanel = true
@@ -252,6 +281,134 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
         report(SearchMessages.replacedInOpenedFiles(total))
     }
 
+    // MARK: - Find in Files (MAC-33)
+
+    /// The directory of the active document, when it has one ("<<").
+    func fillDirectoryFromActiveDocument() {
+        guard let path = documentsProvider().current?.path, path.hasPrefix("/") else { return }
+        let directory = (path as NSString).deletingLastPathComponent
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: directory, isDirectory: &isDirectory), isDirectory.boolValue {
+            directoryField.stringValue = directory
+        }
+    }
+
+    /// Find All / Replace in Files: every file under Directory matching Filters. Open documents
+    /// are searched in their editor (unsaved edits included) and saved after a replace.
+    func findInFiles(replacing: Bool) {
+        guard runningJob == nil else { return }
+        let text = findField.stringValue, replacement = replaceField.stringValue
+        let directory = (directoryField.stringValue as NSString).expandingTildeInPath
+            .trimmingCharacters(in: .whitespaces)
+        var isDirectory: ObjCBool = false
+        guard !directory.isEmpty, FileManager.default.fileExists(atPath: directory, isDirectory: &isDirectory), isDirectory.boolValue else {
+            NSSound.beep()
+            window?.makeFirstResponder(directoryField)
+            return
+        }
+        let filter = FileFilter(filtersField.stringValue)
+        filtersField.stringValue = filter.text
+        if replacing && !confirmReplaceInFiles(directoryField.stringValue, filter.text) { return }
+        remember(find: text, replace: replacing ? replacement : nil)
+        filterHistory.add(filter.text)
+        directoryHistory.add(directoryField.stringValue)
+        reloadHistoryLists()
+        saveState()
+
+        let opts = options
+        let open = Dictionary(documentsProvider().all.compactMap { document -> (String, FindInFilesJob.OpenDocument)? in
+            guard document.path.hasPrefix("/") else { return nil }
+            let key = URL(fileURLWithPath: document.path).resolvingSymlinksInPath().path
+            return (key, FindInFilesJob.OpenDocument(editor: document.editor, save: document.save ?? {}))
+        }, uniquingKeysWith: { first, _ in first })
+        let makeJob: ([URL]) -> FindInFilesJob = { files in
+            FindInFilesJob(text: text, kind: replacing ? .replace(replacement) : .findAll, options: opts, files: files) {
+                open[$0.resolvingSymlinksInPath().path]
+            }
+        }
+        let root = URL(fileURLWithPath: directory, isDirectory: true)
+
+        if runsFindInFilesSynchronously {
+            let files = FileCollector.files(in: root, filter: filter, recursive: opts.inAllSubfolders,
+                                            includeHiddenFolders: opts.inHiddenFolders) ?? []
+            finish(makeJob(files).runToCompletion())
+            return
+        }
+
+        let progress = FindInFilesProgress(title: replacing ? "Replace In Files progress..." : "Find In Files progress...")
+        self.progress = progress
+        let cancelled = CancelFlag()
+        progress.onCancel = { [weak self] in
+            cancelled.set()
+            self?.runningJob?.cancel()
+        }
+        progress.showDiscovering(directory)
+        progress.window?.center()
+        progress.showWindow(nil)
+        DispatchQueue.global(qos: .userInitiated).async {
+            let files = FileCollector.files(in: root, filter: filter, recursive: opts.inAllSubfolders,
+                                            includeHiddenFolders: opts.inHiddenFolders, isCancelled: { cancelled.isSet })
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                guard let files, !cancelled.isSet else { self.endProgress(); return }
+                let job = makeJob(files)
+                self.runningJob = job
+                if files.count <= 1 { progress.window?.orderOut(nil) }  // shown only for several files
+                self.pump(job)
+            }
+        }
+    }
+
+    /// Runs the job a slice at a time so the progress window updates and Cancel is heard.
+    private func pump(_ job: FindInFilesJob) {
+        let more = job.step()
+        progress?.update(file: job.currentFile?.path ?? "", hits: job.hits, done: job.index, total: job.files.count)
+        if more {
+            DispatchQueue.main.async { [weak self] in self?.pump(job) }
+        } else {
+            runningJob = nil
+            endProgress()
+            finish(job.outcome)
+        }
+    }
+
+    private func endProgress() {
+        progress?.close()
+        progress = nil
+    }
+
+    private func finish(_ outcome: FindInFilesJob.Outcome) {
+        switch outcome {
+        case .invalidRegex:
+            report(SearchMessages.invalidRegex)
+        case .found(let block):
+            report(nil)
+            resultsSink(block)
+            if block.hitCount > 0 { close() }
+        case .replaced(let n, let failed):
+            report(SearchMessages.replacedInFiles(n), hint: failed.isEmpty ? nil : "Could not write:\n" + failed.joined(separator: "\n"))
+        case .cancelled:
+            report(nil)
+        }
+    }
+
+    @objc private func findInFilesClicked(_ sender: Any?) { findInFiles(replacing: false) }
+    @objc private func replaceInFilesClicked(_ sender: Any?) { findInFiles(replacing: true) }
+    @objc private func fillDirectoryClicked(_ sender: Any?) { fillDirectoryFromActiveDocument() }
+
+    @objc private func browseClicked(_ sender: Any?) {
+        guard let window else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        let current = (directoryField.stringValue as NSString).expandingTildeInPath
+        if !current.isEmpty { panel.directoryURL = URL(fileURLWithPath: current, isDirectory: true) }
+        panel.beginSheetModal(for: window) { [weak self] response in
+            if response == .OK, let url = panel.url { self?.directoryField.stringValue = url.path }
+        }
+    }
+
     /// Mark All: the Find Mark indicator on every match (bookmarking their lines when asked).
     func markAll() {
         guard let editor = editorProvider() else { return }
@@ -325,7 +482,8 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
     }
 
     private func reloadHistoryLists() {
-        for (field, history) in [(findField, findHistory), (replaceField, replaceHistory)] {
+        for (field, history) in [(findField, findHistory), (replaceField, replaceHistory),
+                                 (filtersField, filterHistory), (directoryField, directoryHistory)] {
             let text = field.stringValue
             field.removeAllItems()
             field.addItems(withObjectValues: history.items)
@@ -337,25 +495,34 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
         if let data = try? JSONEncoder().encode(options) { defaults.set(data, forKey: Self.optionsKey) }
         defaults.set(findHistory.saved, forKey: Self.findHistoryKey)
         defaults.set(replaceHistory.saved, forKey: Self.replaceHistoryKey)
+        defaults.set(filterHistory.saved, forKey: Self.filterHistoryKey)
+        defaults.set(directoryHistory.saved, forKey: Self.directoryHistoryKey)
     }
 
     func setTab(_ newTab: Tab) {
         tab = newTab
         tabs.selectedSegment = newTab.rawValue
-        let replacing = newTab == .replace, marking = newTab == .mark
-        window?.title = ["Find", "Replace", "Mark"][newTab.rawValue]
-        replaceLabel.isHidden = !replacing
-        replaceField.isHidden = !replacing
+        let replacing = newTab == .replace, marking = newTab == .mark, inFiles = newTab == .findInFiles
+        window?.title = ["Find", "Replace", "Find in Files", "Mark"][newTab.rawValue]
+        fieldsGrid?.row(at: 1).isHidden = !(replacing || inFiles)
+        fieldsGrid?.row(at: 2).isHidden = !inFiles
+        fieldsGrid?.row(at: 3).isHidden = !inFiles
         replaceButton.isHidden = !replacing
         replaceAllButton.isHidden = !replacing
         countButton.isHidden = newTab != .find
         findAllCurrentButton.isHidden = newTab != .find
         findAllOpenedButton.isHidden = newTab != .find
         replaceAllOpenedButton.isHidden = !replacing
-        findNextButton.isHidden = marking
+        findNextButton.isHidden = marking || inFiles
         for view in [bookmarkLineBox, purgeBox, markAllButton, clearMarksButton, copyMarkedButton] as [NSView] {
             view.isHidden = !marking
         }
+        for view in [subfoldersBox, hiddenFoldersBox, findInFilesButton, replaceInFilesButton] as [NSView] {
+            view.isHidden = !inFiles
+        }
+        // Notepad++'s Find in Files tab has no direction, wrap or selection.
+        for view in [backwardBox, wrapBox, inSelectionBox] as [NSView] { view.isHidden = inFiles }
+        if inFiles && directoryField.stringValue.isEmpty { fillDirectoryFromActiveDocument() }
         fitWindowToContent()
     }
 
@@ -396,6 +563,8 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
         regexRadio.state = options.mode == .regex ? .on : .off
         dotNewlineBox.state = options.effectiveDotMatchesNewline ? .on : .off
         dotNewlineBox.isEnabled = options.mode == .regex
+        subfoldersBox.state = options.inAllSubfolders ? .on : .off
+        hiddenFoldersBox.state = options.inHiddenFolders ? .on : .off
         bookmarkLineBox.state = options.bookmarkLine ? .on : .off
         purgeBox.state = options.purge ? .on : .off
     }
@@ -411,6 +580,8 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
         case dotNewlineBox: options.dotMatchesNewline = on
         case bookmarkLineBox: options.bookmarkLine = on
         case purgeBox: options.purge = on
+        case subfoldersBox: options.inAllSubfolders = on
+        case hiddenFoldersBox: options.inHiddenFolders = on
         case normalRadio: options.mode = .normal
         case extendedRadio: options.mode = .extended
         case regexRadio: options.mode = .regex
@@ -439,7 +610,7 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         switch selector {
         case #selector(NSResponder.insertNewline(_:)):
-            if tab == .mark { markAll() } else { findNext(reversed: NSApp.currentEvent?.modifierFlags.contains(.shift) == true) }
+            if tab == .findInFiles { findInFiles(replacing: false) } else if tab == .mark { markAll() } else { findNext(reversed: NSApp.currentEvent?.modifierFlags.contains(.shift) == true) }
             return true
         case #selector(NSResponder.cancelOperation(_:)):
             close()
@@ -460,7 +631,7 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
         tabs.target = self
         tabs.action = #selector(tabChanged(_:))
         for box in [inSelectionBox, backwardBox, wholeWordBox, matchCaseBox, wrapBox, normalRadio, extendedRadio, regexRadio,
-                    dotNewlineBox, bookmarkLineBox, purgeBox] {
+                    dotNewlineBox, bookmarkLineBox, purgeBox, subfoldersBox, hiddenFoldersBox] {
             box.target = self
             box.action = #selector(optionChanged(_:))
         }
@@ -479,6 +650,22 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
         findAllOpenedButton.action = #selector(findAllOpenedClicked(_:))
         replaceAllOpenedButton.target = self
         replaceAllOpenedButton.action = #selector(replaceAllOpenedClicked(_:))
+        findInFilesButton.target = self
+        findInFilesButton.action = #selector(findInFilesClicked(_:))
+        replaceInFilesButton.target = self
+        replaceInFilesButton.action = #selector(replaceInFilesClicked(_:))
+        browseButton.target = self
+        browseButton.action = #selector(browseClicked(_:))
+        browseButton.toolTip = "Choose the directory"
+        fillDirectoryButton.target = self
+        fillDirectoryButton.action = #selector(fillDirectoryClicked(_:))
+        fillDirectoryButton.toolTip = "Fill directory field based on active document"
+        filtersField.toolTip = """
+            Find in cpp, cxx, h, hxx & hpp:  *.cpp *.cxx *.h *.hxx *.hpp
+            Find in all files except exe, obj & log:  *.* !*.exe !*.obj !*.log
+            Find in all files but exclude folders tests, bin & bin64:  *.* !/tests !/bin*
+            Find in all files but exclude all folders log or logs recursively:  *.* !+/log*
+            """
         markAllButton.target = self
         markAllButton.action = #selector(markAllClicked(_:))
         clearMarksButton.target = self
@@ -493,12 +680,22 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
         }
 
         let findLabel = NSTextField(labelWithString: "Find what:")
-        let fields = NSGridView(views: [[findLabel, findField], [replaceLabel, replaceField]])
+        for field in [filtersField, directoryField] {
+            field.completes = false
+            field.numberOfVisibleItems = 12
+        }
+        let directoryRow = NSStackView(views: [directoryField, fillDirectoryButton, browseButton])
+        directoryRow.spacing = 6
+        let fields = NSGridView(views: [[findLabel, findField], [replaceLabel, replaceField],
+                                        [NSTextField(labelWithString: "Filters:"), filtersField],
+                                        [NSTextField(labelWithString: "Directory:"), directoryRow]])
+        fieldsGrid = fields
         fields.column(at: 0).xPlacement = .trailing
         fields.rowAlignment = .firstBaseline
         fields.rowSpacing = 8
 
-        let checks = NSStackView(views: [bookmarkLineBox, purgeBox, inSelectionBox, backwardBox, wholeWordBox, matchCaseBox, wrapBox])
+        let checks = NSStackView(views: [bookmarkLineBox, purgeBox, inSelectionBox, backwardBox, wholeWordBox, matchCaseBox, wrapBox,
+                                         subfoldersBox, hiddenFoldersBox])
         checks.orientation = .vertical
         checks.alignment = .leading
         checks.spacing = 6
@@ -521,13 +718,13 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
         left.alignment = .leading
         left.spacing = 16
 
-        let buttons = NSStackView(views: [findNextButton, countButton, findAllCurrentButton, findAllOpenedButton,
+        let buttons = NSStackView(views: [findNextButton, findInFilesButton, replaceInFilesButton, countButton, findAllCurrentButton, findAllOpenedButton,
                                           replaceButton, replaceAllButton, replaceAllOpenedButton,
                                           markAllButton, clearMarksButton, copyMarkedButton])
         buttons.orientation = .vertical
         buttons.alignment = .leading
         buttons.spacing = 8
-        for button in [findNextButton, countButton, findAllCurrentButton, findAllOpenedButton, replaceButton, replaceAllButton,
+        for button in [findNextButton, findInFilesButton, replaceInFilesButton, countButton, findAllCurrentButton, findAllOpenedButton, replaceButton, replaceAllButton,
                        replaceAllOpenedButton, markAllButton, clearMarksButton, copyMarkedButton] {
             button.widthAnchor.constraint(equalToConstant: 250).isActive = true
         }
@@ -558,4 +755,12 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
         ])
         fitWindowToContent()
     }
+}
+
+/// Cancel, as seen from the folder walk on a background queue.
+private final class CancelFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    var isSet: Bool { lock.lock(); defer { lock.unlock() }; return value }
+    func set() { lock.lock(); value = true; lock.unlock() }
 }

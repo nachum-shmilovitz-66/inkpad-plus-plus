@@ -53,6 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @IBAction func showFindPanel(_ sender: Any?) { findReplace.show(.find) }
     @IBAction func showReplacePanel(_ sender: Any?) { findReplace.show(.replace) }
     @IBAction func showMarkPanel(_ sender: Any?) { findReplace.show(.mark) }
+    @IBAction func showFindInFilesPanel(_ sender: Any?) { findReplace.show(.findInFiles) }
     @IBAction func findNextMatch(_ sender: Any?) { findReplace.findNext() }
     @IBAction func findPreviousMatch(_ sender: Any?) { findReplace.findNext(reversed: true) }
     @IBAction func selectAndFindNext(_ sender: Any?) { findReplace.selectAndFindNext(reversed: false) }
