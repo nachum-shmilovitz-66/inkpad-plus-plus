@@ -35,6 +35,7 @@ xcodebuild -quiet test -project MacPad++.xcodeproj -scheme MacPad++ \
   -derivedDataPath build/dd-test -destination 'platform=macOS,arch=arm64'
 
 echo "== Release build"
+rm -rf "$DD/Build/Products/Release/MacPad++.app"  # no leftovers from older builds in the bundle (MAC-59)
 xcodebuild -quiet -project MacPad++.xcodeproj -scheme MacPad++ -configuration Release \
   -derivedDataPath "$DD" build
 APP=$DD/Build/Products/Release/MacPad++.app
@@ -43,6 +44,10 @@ VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$APP/Co
 IDENTITY=${SIGN_IDENTITY:-$(security find-identity -v -p codesigning \
   | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -1)}
 IDENTITY=${IDENTITY:--}
+# MAC-59: an ad-hoc (unsigned) release only when asked for — never silently.
+if [[ $IDENTITY == - && ${ALLOW_ADHOC:-} != 1 ]]; then
+  echo "No Developer ID Application identity; set ALLOW_ADHOC=1 to build an ad-hoc package" >&2; exit 1
+fi
 echo "== Signing app with: $IDENTITY"
 if [[ $IDENTITY == - ]]; then
   SIGN=(codesign --force --sign -)
@@ -56,18 +61,33 @@ $SIGN --identifier app.macpad.MacPad.cli "$APP/Contents/MacOS/macpad"
 $SIGN "$APP/Contents/Frameworks/Scintilla.framework"
 $SIGN "$APP"
 codesign --verify --deep --strict "$APP"
+if [[ $IDENTITY != - ]]; then
+  # MAC-59: every piece of code is hardened, timestamped and the team's.
+  for code in "$APP/Contents/MacOS/MacPadHelper" "$APP/Contents/MacOS/macpad" \
+              "$APP/Contents/Frameworks/Scintilla.framework" "$APP"; do
+    info=$(codesign -dvvv "$code" 2>&1)
+    [[ $info == *"(runtime)"* && $info == *"Timestamp="* && $info == *"TeamIdentifier=96Y4LX7FVB"* ]] \
+      || { echo "$code is not hardened, timestamped and team-signed:" >&2; echo "$info" >&2; exit 1; }
+  done
+fi
 
 echo "== PKG"
 # pkgbuild takes a root directory, so the app is staged alone: everything under the root lands
 # in /Applications, and nothing else must be in there.
 rm -rf "$STAGE" "$COMPONENT"
 mkdir -p "$STAGE"
-ditto "$APP" "$STAGE/MacPad++.app"
+ditto --noextattr --norsrc "$APP" "$STAGE/MacPad++.app"  # no ._ AppleDouble files in the payload
 
 # scripts/pkg: preinstall stops a running helper, postinstall installs it as a launchd daemon
 # (MAC-28) — the Touch ID path for administrator saves, approved with the installation itself.
+# MAC-59: not relocatable — Installer must never "upgrade" a copy somewhere else (a build folder)
+# while postinstall wires /Applications/MacPad++.app.
+COMPONENT_PLIST=$ROOT/build/MacPad++-component.plist
+pkgbuild --analyze --root "$STAGE" "$COMPONENT_PLIST" >/dev/null
+/usr/libexec/PlistBuddy -c "Set :0:BundleIsRelocatable false" "$COMPONENT_PLIST"
 pkgbuild --quiet \
   --root "$STAGE" \
+  --component-plist "$COMPONENT_PLIST" \
   --scripts "$ROOT/scripts/pkg" \
   --install-location /Applications \
   --identifier app.macpad.MacPad \
@@ -95,6 +115,11 @@ if ref.find("must-close") is None:
 options = root.find("options")
 if options is not None:
     options.set("hostArchitectures", "arm64")
+# MAC-59: the same minimum macOS as the app (LSMinimumSystemVersion 13.0).
+if root.find("allowed-os-versions") is None:
+    allowed = ET.Element("allowed-os-versions")
+    ET.SubElement(allowed, "os-version", min="13.0")
+    root.insert(0, allowed)
 if root.find("title") is None:
     title = ET.Element("title"); title.text = "MacPad++"; root.insert(0, title)
 tree.write(path, encoding="utf-8", xml_declaration=True)
@@ -104,6 +129,9 @@ grep -q '<app id="app.macpad.MacPad"' "$DISTXML" || { echo "must-close missing f
 PKG_IDENTITY=${PKG_SIGN_IDENTITY:-$(security find-identity -v \
   | sed -n 's/.*"\(Developer ID Installer: [^"]*\)".*/\1/p' | head -1)}
 PKG_IDENTITY=${PKG_IDENTITY:--}
+if [[ $PKG_IDENTITY == - && ${ALLOW_ADHOC:-} != 1 ]]; then
+  echo "No Developer ID Installer identity; set ALLOW_ADHOC=1 to build an unsigned package" >&2; exit 1
+fi
 if [[ $PKG_IDENTITY == - ]]; then
   echo "== No Developer ID Installer identity — building an unsigned package"
   productbuild --quiet --distribution "$DISTXML" --package-path "${COMPONENT:h}" "$PKG"
@@ -111,7 +139,8 @@ else
   echo "== Signing installer with: $PKG_IDENTITY"
   productbuild --quiet --distribution "$DISTXML" --package-path "${COMPONENT:h}" --sign "$PKG_IDENTITY" "$PKG"
 fi
-rm -rf "$STAGE" "$COMPONENT" "$DISTXML"
+rm -rf "$STAGE" "$COMPONENT" "$DISTXML" "$COMPONENT_PLIST"
+"$ROOT/scripts/check-pkg.sh" "$PKG"  # MAC-59: the package as shipped, checked
 
 if [[ -n ${NOTARY_PROFILE:-} && $PKG_IDENTITY != - ]]; then
   echo "== Notarizing (profile $NOTARY_PROFILE)"

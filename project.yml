@@ -43,11 +43,15 @@ targets:
         # installed app, and it never shares the installed app's preferences.
         Debug:
           PRODUCT_BUNDLE_IDENTIFIER: app.macpad.MacPad.debug
+        # MAC-59: Release builds carry the hardened runtime themselves, not only after make-pkg re-signs.
+        Release:
+          ENABLE_HARDENED_RUNTIME: YES
     dependencies:
       - framework: build/deps/Scintilla.framework
         embed: true
         codeSign: true
-      # MAC-24: the helper binary goes into Contents/MacOS (the plist's BundleProgram).
+      # MAC-24: the helper binary goes into Contents/MacOS; postinstall copies it to
+      # /Library/PrivilegedHelperTools (MAC-56).
       - target: MacPadHelper
         embed: true
         copy:
@@ -74,8 +78,9 @@ targets:
           rsync -a --delete "$NPP/installer/themes/" "$DEST/themes/"
           rsync -a --delete "$NPP/installer/functionList/" "$DEST/functionList/"
 
-  # MAC-24: privileged helper (launchd daemon via SMAppService); runs as root, writes one file per
-  # request, only for MacPad++ signed by the same team.
+  # MAC-24: privileged helper (a launchd daemon installed by postinstall); runs as root, writes one
+  # file per request, only for MacPad++ signed with the team's Developer ID and only after an
+  # administrator authorized that write (MAC-55).
   MacPadHelper:
     type: tool
     platform: macOS
@@ -92,6 +97,10 @@ targets:
         CODE_SIGN_STYLE: Manual
         DEVELOPMENT_TEAM: ""
         ENABLE_HARDENED_RUNTIME: NO
+      configs:
+        # MAC-59: Release builds carry the hardened runtime themselves, not only after make-pkg re-signs.
+        Release:
+          ENABLE_HARDENED_RUNTIME: YES
 
   # MAC-52: `macpad file -n42` from a shell; hands Notepad++'s options to the app.
   macpad:
@@ -110,6 +119,10 @@ targets:
         CODE_SIGN_STYLE: Manual
         DEVELOPMENT_TEAM: ""
         ENABLE_HARDENED_RUNTIME: NO
+      configs:
+        # MAC-59: Release builds carry the hardened runtime themselves, not only after make-pkg re-signs.
+        Release:
+          ENABLE_HARDENED_RUNTIME: YES
 
   MacPad++Tests:
     type: bundle.unit-test
