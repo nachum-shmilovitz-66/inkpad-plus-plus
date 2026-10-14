@@ -48,6 +48,15 @@ final class PreferencesController: NSWindowController {
     let recentFilesField = NSTextField()
     let sqlBackslashBox = NSButton(checkboxWithTitle: "Treat backslash as escape character for SQL", target: nil, action: nil)
     let scaleFontsBox = NSButton(checkboxWithTitle: "Scale Notepad++ font sizes for macOS (× 4/3)", target: nil, action: nil)
+    // File Association (MAC-51)
+    private(set) lazy var fileAssociationPane: FileAssociationPane = {
+        let pane = FileAssociationPane()
+        pane.onError = { [weak self] error in
+            let alert = NSAlert(error: error)
+            if let window = self?.window { alert.beginSheetModal(for: window) } else { alert.runModal() }
+        }
+        return pane
+    }()
 
     static let lineEndings: [(String, LineEnding)] = [("Windows (CR LF)", .crlf), ("Unix (LF)", .lf), ("Macintosh (CR)", .cr)]
     static let encodings: [(String, Preferences.NewDocEncoding)] = [
@@ -287,6 +296,7 @@ final class PreferencesController: NSWindowController {
         page("Searching", [grid([[label("Minimum Size for Auto-Checking \"In selection\":"), inSelectionField]]),
                            fillFindBox, grid([[label("Max Characters to Auto-Fill Find Field from Selection:"), fillMaxField]]),
                            selectWordBox, staysOpenBox, confirmReplaceBox, replaceStopsBox])
+        page("File Association", [fileAssociationPane])
         page("Misc.", [grid([[label("Recent Files: max. number of entries:"), recentFilesField]]), sqlBackslashBox, scaleFontsBox])
 
         tabView.translatesAutoresizingMaskIntoConstraints = false

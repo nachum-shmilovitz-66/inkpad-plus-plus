@@ -227,7 +227,7 @@ final class PreferencesTests: XCTestCase {
         XCTAssertEqual(p.edgeColumns, [72])
         XCTAssertEqual(p.newDocLineEnding, .crlf)
         XCTAssertTrue(c.edgeBackgroundBox.isEnabled, "background mode needs exactly one column")
-        XCTAssertEqual(c.tabView.tabViewItems.map(\.label), ["New Document", "Editing", "Margins", "Indentation", "Searching", "Misc."])
+        XCTAssertEqual(c.tabView.tabViewItems.map(\.label), ["New Document", "Editing", "Margins", "Indentation", "Searching", "File Association", "Misc."])
     }
 
     func testTheIndentationPageEditsOneLanguage() throws {
