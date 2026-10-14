@@ -101,8 +101,11 @@ lexer + keywords by extension from `langs.model.xml`; default theme from `styler
 brace match, Notepad++-style status bar; BOM/UTF-8/UTF-16/ANSI decode + byte-exact save; EOL kept.
 
 Known approximations, to be closed in later milestones:
-- Keyword-set mapping ports only the generic rule and the cpp family (`setCppLexer`); other
-  per-language setup in `ScintillaEditView::defineDocType` (HTML-embedded scripts, etc.) is milestone 4.
+- Per-language lexer setup (`ScintillaEditView::defineDocType` and its set*Lexer helpers) is the
+  table in `LexerRecipes.swift` (MAC-11): keyword sets per language, lexer properties, substyles
+  (substyle1…8 = keyword classes 9…16), HTML/PHP/ASP/JSP as "hypertext" with embedded JS/PHP/VBScript
+  styles, EOL-filled styles, tabSettings, indent guides, fold margin. Not ported: NFO's Lucida Console
+  default and per-language word characters.
 - Encoding detection (MAC-10) is Notepad++'s: uchardet (`build/deps/libuchardet.a`, from
   `PowerEditor/src/uchardet`) + EncodingMapper (`CodePageTable.swift`, generated, 46 code pages).
   Differences: valid UTF-8 is accepted before asking uchardet; "ANSI" is Windows-1252 (Notepad++
@@ -110,7 +113,7 @@ Known approximations, to be closed in later milestones:
   ISO-8859-8-I names are mapped (Notepad++'s table misses them). Converting *to* an arbitrary code
   page (Encoding › Character sets menu) is not built yet.
 - Font sizes are scaled by 4/3 (Windows 96 dpi points → macOS points); new files use LF, not CRLF.
-- No first-line language detection (`#!/bin/bash`, `<?xml`) yet.
+- First-line detection (`LanguageDetector`, MAC-11) follows Notepad++'s detectLanguageFromTextBeginning.
 
 Milestone 2: **done except MAC-25** (2026-10-14, release 0.1.8) — tabs, session restore, recent files,
 encoding/EOL pickers, encoding detection, tail -f, reload on external change, Save as Administrator

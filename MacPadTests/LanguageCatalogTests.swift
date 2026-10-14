@@ -87,7 +87,7 @@ final class LanguageCatalogTests: XCTestCase {
         let cpp = try XCTUnwrap(catalog.languages["cpp"])
         XCTAssertEqual(cpp.keywords[0], "if else while", "instre1")
         XCTAssertEqual(cpp.keywords[2], "int char", "type1")
-        XCTAssertEqual(cpp.keywords.count, 2, "substyle1 is handled by substyles, not keyword sets")
+        XCTAssertEqual(cpp.keywords.count, 3, "instre1, type1 and substyle1 (class 9, for the identifier substyles)")
     }
 
     func testCommentTokensAreParsed() throws {
@@ -116,7 +116,7 @@ final class LanguageCatalogTests: XCTestCase {
         XCTAssertEqual(keywordClassIndex("0"), 0)
         XCTAssertEqual(keywordClassIndex("8"), 8)
         XCTAssertNil(keywordClassIndex("9"))
-        XCTAssertNil(keywordClassIndex("substyle1"))
+        XCTAssertEqual(keywordClassIndex("substyle1"), 9, "MAC-11: substyle classes feed SCI_SETIDENTIFIERS")
         XCTAssertNil(keywordClassIndex("nonsense"))
     }
 

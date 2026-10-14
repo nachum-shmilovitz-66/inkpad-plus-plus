@@ -13,6 +13,8 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
     /// Scintilla's EOL mode: what Enter inserts, and what the status bar shows.
     var lineEnding: LineEnding { LineEnding(rawValue: editor.send(SCI_GETEOLMODE)) ?? .lf }
     private(set) var language: LanguageInfo = LanguageCatalog.shared.plainText
+    /// Chosen from the Language menu (or the session): saving under a new name keeps it.
+    private(set) var isLanguageChosenByUser = false
 
     /// Called when the title, the dirty state or the caret changes, so the host can refresh the
     /// tab bar, the window title and the status bar.
@@ -68,7 +70,8 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
     // MARK: - Loading and saving
 
     func load(_ url: URL) throws {
-        let loaded = TextFile.decode(try Data(contentsOf: url))
+        let data = try Data(contentsOf: url)
+        let loaded = TextFile.decode(data)
         editor.setUTF8Bytes(loaded.utf8)
         if let eol = loaded.lineEnding { editor.send(SCI_SETEOLMODE, eol.rawValue) }
         editor.send(SCI_EMPTYUNDOBUFFER)
@@ -79,10 +82,21 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         isMissingOnDisk = false
         pendingExternalChange = nil
         startDiskWatch()
-        applyLanguage(LanguageCatalog.shared.language(for: url))
+        isLanguageChosenByUser = false
+        applyLanguage(Self.language(for: url, content: data))
         AppEnvironment.noteRecentDocument(url)
         RecentFilesStore.shared.record(url)
         onChange?()
+    }
+
+    /// The extension or file name first; for a plain-text result, the first line (MAC-11:
+    /// "#!/bin/bash", "<?xml" …), as Notepad++'s detectLanguageFromTextBeginning.
+    static func language(for url: URL, content: Data) -> LanguageInfo {
+        let byName = LanguageCatalog.shared.language(for: url)
+        guard byName.name == LanguageCatalog.shared.plainText.name,
+              let detected = LanguageDetector.language(fromTextBeginning: content),
+              let info = LanguageCatalog.shared.language(named: detected) else { return byName }
+        return info
     }
 
     /// Asks whether to save as administrator; the host's answer arrives through the callback.
@@ -183,7 +197,12 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         pendingExternalChange = nil
         startDiskWatch()  // our own write is the new baseline, never a prompt
         editor.send(SCI_SETSAVEPOINT)
-        if languageChanged { applyLanguage(LanguageCatalog.shared.language(for: url)) }
+        // A new extension, or a still-plain document, picks its language again — unless the user
+        // chose one from the Language menu.
+        if !isLanguageChosenByUser && (languageChanged || language.name == LanguageCatalog.shared.plainText.name) {
+            let candidate = Self.language(for: url, content: editor.utf8Bytes().prefix(4096))
+            if candidate.name != language.name { applyLanguage(candidate) }
+        }
         AppEnvironment.noteRecentDocument(url)
         RecentFilesStore.shared.record(url)
         onChange?()
@@ -488,6 +507,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
 
     /// Language menu: re-lexes the document with `info`, whatever its extension says.
     func setLanguage(_ info: LanguageInfo) {
+        isLanguageChosenByUser = true
         guard info.name != language.name else { return }
         applyLanguage(info)
         onChange?()

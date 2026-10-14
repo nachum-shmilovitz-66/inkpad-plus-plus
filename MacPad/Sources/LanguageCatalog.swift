@@ -9,6 +9,9 @@ struct LanguageDefinition {
     let commentLine: String?
     let commentStart: String?
     let commentEnd: String?
+    /// langs.model.xml tabSettings: low 7 bits the tab width, 0x80 "replace by spaces"; nil = global.
+    var tabSettings: Int? = nil
+    var backspaceUnindent = false
 }
 
 /// Notepad++'s keyword class names → index (Parameters.cpp, getKwClassFromName).
@@ -16,7 +19,9 @@ func keywordClassIndex(_ name: String) -> Int? {
     let names = ["instre1", "instre2", "type1", "type2", "type3", "type4", "type5", "type6", "type7"]
     if let i = names.firstIndex(of: name) { return i }
     if name.count == 1, let d = Int(name), (0...8).contains(d) { return d }
-    return nil  // substyle1…8 are handled by substyles, not keyword sets
+    // substyle1…8 → 9…16: identifier lists for lexer substyles (populateSubStyleKeywords).
+    if name.hasPrefix("substyle"), let n = Int(name.dropFirst("substyle".count)), (1...8).contains(n) { return 8 + n }
+    return nil
 }
 
 /// Languages from langs.model.xml merged with the built-in Notepad++ language table.
@@ -50,7 +55,9 @@ final class LanguageCatalog {
                 info: info, extensions: exts, keywords: keywords,
                 commentLine: node.attribute(forName: "commentLine")?.stringValue,
                 commentStart: node.attribute(forName: "commentStart")?.stringValue,
-                commentEnd: node.attribute(forName: "commentEnd")?.stringValue)
+                commentEnd: node.attribute(forName: "commentEnd")?.stringValue,
+                tabSettings: node.attribute(forName: "tabSettings")?.stringValue.flatMap { Int($0) }.flatMap { $0 < 0 ? nil : $0 },
+                backspaceUnindent: node.attribute(forName: "backspaceUnindent")?.stringValue == "yes")
             // First language to claim an extension wins, as in Notepad++'s ordered lookup.
             for ext in exts where byExtension[ext] == nil { byExtension[ext] = name }
         }
@@ -66,11 +73,7 @@ final class LanguageCatalog {
     func language(for url: URL?) -> LanguageInfo {
         guard let url else { return plainText }
         let fileName = url.lastPathComponent.lowercased()
-        let special: [String: String] = [
-            "makefile": "makefile", "gnumakefile": "makefile",
-            "cmakelists.txt": "cmake",
-        ]
-        if let name = special[fileName], let def = languages[name] { return def.info }
+        if let name = LanguageDetector.fileNames[fileName], let def = languages[name] { return def.info }
         let ext = url.pathExtension.lowercased()
         if !ext.isEmpty, let name = byExtension[ext], let def = languages[name] { return def.info }
         return plainText

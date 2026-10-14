@@ -64,42 +64,66 @@ enum EditorStyler {
 
     /// Selects the lexer for `language`, loads its keywords, and paints `theme`.
     static func apply(language: LanguageInfo, theme: StyleTheme, to v: ScintillaView) {
-        let definition = LanguageCatalog.shared.languages[language.name]
-        let lexerStyles = theme.lexerStyles[language.name] ?? []
+        let recipe = LexerRecipe.recipe(for: language.name)
+        let lexerName = recipe.lexer ?? language.lexer
 
-        // 1. Lexer.
-        if language.lexer == "null" {
+        // 1. Lexer (substyles belong to the previous lexer and go with it).
+        v.send(SCI_FREESUBSTYLES)
+        if lexerName == "null" {
             v.send(SCI_SETILEXER, 0, 0)
-        } else if let lexer = CreateLexer(language.lexer) {
+        } else if let lexer = CreateLexer(lexerName) {
             v.send(SCI_SETILEXER, 0, Int(bitPattern: lexer))
         } else {
-            NSLog("MacPad++: Lexilla has no lexer named \(language.lexer)")
+            NSLog("MacPad++: Lexilla has no lexer named \(lexerName)")
             v.send(SCI_SETILEXER, 0, 0)
         }
 
-        // 2. Keywords: langs.model.xml lists plus the user words stored on styles in the theme.
-        var keywords = definition?.keywords ?? [:]
-        for style in lexerStyles where !style.userWords.isEmpty {
-            if let cls = style.keywordClass, let idx = keywordClassIndex(cls) {
-                keywords[idx] = [keywords[idx], style.userWords].compactMap { $0 }.joined(separator: " ")
-            }
+        // 2. Keywords, per defineDocType's set*Lexer: each set from a keyword class of this or another
+        //    language, the stylers' user words first, then langs.model.xml's (ScintillaEditView::setKeywords).
+        func words(_ source: LexerRecipe.Words) -> String {
+            let name = source.language ?? language.name
+            let user = (theme.lexerStyles[name] ?? [])
+                .filter { $0.keywordClass.flatMap(keywordClassIndex) == source.keywordClass && !$0.userWords.isEmpty }
+                .map(\.userWords)
+            let model = LanguageCatalog.shared.languages[name]?.keywords[source.keywordClass]
+            return (user + [model].compactMap { $0 }).joined(separator: " ")
         }
         for set in 0...8 { v.send(SCI_SETKEYWORDS, set, string: "") }
-        if language.lexer == "cpp" {
-            // ScintillaEditView::setCppLexer: instre1→0, type1→1, type2 (doc keywords)→2, instre2→3.
-            let map = [0: 0, 2: 1, 3: 2, 1: 3]
-            for (cls, set) in map { if let words = keywords[cls] { v.send(SCI_SETKEYWORDS, set, string: words) } }
-        } else {
-            for (cls, words) in keywords { v.send(SCI_SETKEYWORDS, cls, string: words) }
+        let sets = recipe.keywordSets
+            ?? Dictionary(uniqueKeysWithValues: (0...8).map { ($0, LexerRecipe.Words(language: nil, keywordClass: $0)) })
+        for (set, source) in sets.sorted(by: { $0.key < $1.key }) {
+            let list = words(source)
+            if !list.isEmpty { v.send(SCI_SETKEYWORDS, set, string: list) }
         }
 
-        // 3. Lexer properties Notepad++ sets for folding.
-        for (key, value) in [("fold", "1"), ("fold.compact", "0"), ("fold.comment", "1"),
-                             ("fold.preprocessor", "1"), ("fold.html", "1"), ("fold.cpp.comment.explicit", "0")] {
+        // 3. Lexer properties, then substyles (identifiers listed by substyle1…8).
+        for (key, value) in recipe.allProperties {
             _ = key.withCString { k in value.withCString { val in
                 v.send(SCI_SETPROPERTY, Int(bitPattern: k), Int(bitPattern: val))
             } }
         }
+        for sub in recipe.substyles {
+            let first = v.send(SCI_ALLOCATESUBSTYLES, sub.base, sub.count)
+            guard first >= 0 else { continue }
+            for i in 0..<sub.count {
+                v.send(SCI_SETIDENTIFIERS, first + i,
+                       string: words(LexerRecipe.Words(language: sub.language, keywordClass: sub.firstClass + i)))
+            }
+        }
+
+        // Per-language editor settings: tabs (langs.model.xml tabSettings), indent guides, fold margin.
+        let definition = LanguageCatalog.shared.languages[language.name]
+        if let tab = definition?.tabSettings, tab & 0x7F != 0 {
+            v.send(SCI_SETTABWIDTH, tab & 0x7F)
+            v.send(SCI_SETUSETABS, tab & 0x80 != 0 ? 0 : 1)
+        } else {
+            v.send(SCI_SETTABWIDTH, 4)
+            v.send(SCI_SETUSETABS, 1)
+        }
+        v.send(SCI_SETBACKSPACEUNINDENTS, definition?.backspaceUnindent == true ? 1 : 0)
+        let lookForward = LexerRecipe.lookForwardIndentGuides.contains(language.name)
+        v.send(SCI_SETINDENTATIONGUIDES, Int(lookForward ? SC_IV_LOOKFORWARD : SC_IV_LOOKBOTH))
+        v.send(SCI_SETMARGINWIDTHN, Margin.fold, LexerRecipe.noFoldMargin.contains(language.name) ? 0 : 14)
 
         // 4. Styles: default → clear all → globals → lexer styles.
         let defaultStyle = theme.global("Default Style")
@@ -115,7 +139,12 @@ enum EditorStyler {
             // 33 line numbers, 34/35 braces, 37 indent guides …; 21–31 are indicator colours (milestone 3).
             if g.styleID >= 32 { setStyle(g.styleID, g, on: v) }
         }
-        for s in lexerStyles { setStyle(s.styleID, s, on: v) }
+        // HTML-family documents paint html, then the embedded javascript / php / asp styles.
+        let painted = recipe.embeddedStyles.isEmpty ? [language.name] : recipe.embeddedStyles
+        for name in painted {
+            for s in theme.lexerStyles[name] ?? [] { setStyle(s.styleID, s, on: v) }
+        }
+        for style in recipe.eolFilled { v.send(SCI_STYLESETEOLFILLED, style, 1) }
 
         applyWidgetColours(theme, to: v)
         v.send(SCI_COLOURISE, 0, -1)

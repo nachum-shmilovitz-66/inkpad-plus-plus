@@ -86,8 +86,9 @@ final class LanguageMenuTests: XCTestCase {
             let length = tab.editor.send(SCI_GETLEXERLANGUAGE)
             var buffer = [CChar](repeating: 0, count: length + 1)
             buffer.withUnsafeMutableBytes { _ = tab.editor.send(SCI_GETLEXERLANGUAGE, 0, pointer: $0.baseAddress) }
-            // Case-insensitive: LexD calls itself "D".
-            if String(cString: buffer).lowercased() != info.lexer.lowercased() { missing.append("\(name) (\(info.lexer))") }
+            // Case-insensitive: LexD calls itself "D". PHP is lexed as HTML (LexerRecipe).
+            let expected = LexerRecipe.recipe(for: name).lexer ?? info.lexer
+            if String(cString: buffer).lowercased() != expected.lowercased() { missing.append("\(name) (\(expected))") }
         }
         XCTAssertEqual(missing, [], "languages whose Lexilla lexer is not built in")
         tab.detach()
