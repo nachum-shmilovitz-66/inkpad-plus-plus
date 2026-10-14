@@ -123,4 +123,12 @@ for old in "$DIST"/MacPad++-*.pkg(N); do
   [[ $old == "$PKG" ]] || { rm -f "$old"; echo "== removed older installer: ${old:t}"; }
 done
 
+# Xcode registers every app it builds with LaunchServices. The Release copies under build/ carry
+# the installed app's bundle id, so Finder could launch one of them for the user's files instead of
+# /Applications/MacPad++.app (it did, 2026-10-14): unregister them.
+LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+for app in "$ROOT"/build/*/MacPad++.app(N) "$ROOT"/build/*/Build/Products/*/MacPad++.app(N); do
+  "$LSREGISTER" -u "$app" 2>/dev/null || true
+done
+
 echo "== done: $PKG"
