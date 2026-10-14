@@ -1,5 +1,4 @@
 import Security
-import ServiceManagement
 import XCTest
 @testable import MacPad
 
@@ -91,23 +90,8 @@ final class FileInstallerTests: XCTestCase {
     }
 }
 
-/// The helper as packaged inside the app, and who may talk to whom.
-final class HelperPackagingTests: XCTestCase {
-    private var daemonPlist: URL {
-        Bundle.main.bundleURL.appendingPathComponent("Contents/Library/LaunchDaemons/\(HelperIdentity.daemonPlist)")
-    }
-
-    func testTheDaemonPlistIsWhereSMAppServiceLooks() throws {
-        let data = try Data(contentsOf: daemonPlist)
-        let plist = try XCTUnwrap(try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
-        XCTAssertEqual(plist["Label"] as? String, HelperIdentity.machService)
-        XCTAssertEqual((plist["MachServices"] as? [String: Bool])?[HelperIdentity.machService], true)
-        XCTAssertEqual(plist["AssociatedBundleIdentifiers"] as? [String], [HelperIdentity.appIdentifier])
-        let program = try XCTUnwrap(plist["BundleProgram"] as? String)
-        XCTAssertTrue(FileManager.default.isExecutableFile(atPath: Bundle.main.bundleURL.appendingPathComponent(program).path),
-                      "BundleProgram \(program) must exist in the app")
-    }
-
+/// Who may talk to whom.
+final class HelperIdentityTests: XCTestCase {
     func testCodeSigningRequirementsAreValid() {
         for text in [HelperIdentity.clientRequirement, HelperIdentity.helperRequirement] {
             var requirement: SecRequirement?
@@ -118,57 +102,146 @@ final class HelperPackagingTests: XCTestCase {
         XCTAssertTrue(HelperIdentity.helperRequirement.contains("identifier \"app.macpad.MacPad.helper\""))
     }
 
-    func testADevelopmentBuildCannotUseTheHelper() {
-        // The test host is ad-hoc signed: no team, so the helper route is unavailable and the
-        // password prompt is used.
+    func testTheHelperIsInsideTheApp() {
+        let helper = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/MacPadHelper")
+        XCTAssertTrue(FileManager.default.isExecutableFile(atPath: helper.path))
+    }
+
+    func testADevelopmentBuildNeverUsesTheHelper() {
+        // The test host is ad-hoc signed: the helper is not even asked, the password prompt is used.
         XCTAssertNotEqual(AdminHelperSupport.signingTeam, HelperIdentity.teamID)
-        XCTAssertEqual(SMAdminHelper().status, .unavailable)
+        var answer: Bool?
+        XPCAdminHelper().checkAvailable { answer = $0 }
+        let deadline = Date().addingTimeInterval(3)
+        while answer == nil, Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+        XCTAssertEqual(answer, false)
+    }
+
+    func testRouteFollowsAvailability() {
+        XCTAssertEqual(AdminSaveRoute.decide(helperAvailable: true), .touchID)
+        XCTAssertEqual(AdminSaveRoute.decide(helperAvailable: false), .password)
+        XCTAssertEqual(AdminHelperSupport.reason(for: URL(fileURLWithPath: "/etc/hosts")),
+                       "save \u{201C}hosts\u{201D} as administrator")
     }
 }
 
-/// Which way an admin save goes.
-final class AdminSaveRouteTests: XCTestCase {
-    func testDecisionTable() {
-        XCTAssertEqual(AdminSaveRoute.decide(status: .enabled, setupDeclined: false), .touchID)
-        XCTAssertEqual(AdminSaveRoute.decide(status: .enabled, setupDeclined: true), .touchID)
-        XCTAssertEqual(AdminSaveRoute.decide(status: .notRegistered, setupDeclined: false), .offerSetup)
-        XCTAssertEqual(AdminSaveRoute.decide(status: .requiresApproval, setupDeclined: false), .offerSetup)
-        XCTAssertEqual(AdminSaveRoute.decide(status: .notRegistered, setupDeclined: true), .password)
-        XCTAssertEqual(AdminSaveRoute.decide(status: .requiresApproval, setupDeclined: true), .password)
-        XCTAssertEqual(AdminSaveRoute.decide(status: .unavailable, setupDeclined: false), .password)
+/// MAC-28: the installer's scripts, run for real as the user against temp folders, with a stub
+/// launchctl that records what it was asked to do.
+final class PkgScriptTests: XCTestCase {
+    private var root: URL!
+    private var target: URL!     // stands in for /Applications
+    private var daemons: URL!    // stands in for /Library/LaunchDaemons
+    private var launchctlLog: URL!
+    private var launchctlStub: URL!
+    private let label = "app.macpad.MacPad.helper"
+
+    private var scripts: URL {
+        URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("scripts/pkg")
     }
 
-    func testTouchIDReasonNamesTheFile() {
-        XCTAssertEqual(AdminHelperSupport.reason(for: URL(fileURLWithPath: "/etc/hosts")),
-                       "save \u{201C}hosts\u{201D} as administrator")
+    override func setUpWithError() throws {
+        root = FileManager.default.temporaryDirectory.appendingPathComponent("pkgscripts-\(UUID().uuidString)")
+        target = root.appendingPathComponent("Applications")
+        daemons = root.appendingPathComponent("LaunchDaemons")
+        launchctlLog = root.appendingPathComponent("launchctl.log")
+        launchctlStub = root.appendingPathComponent("launchctl")
+        let macOS = target.appendingPathComponent("MacPad++.app/Contents/MacOS")
+        try FileManager.default.createDirectory(at: macOS, withIntermediateDirectories: true)
+        try Data("#!/bin/sh\n".utf8).write(to: macOS.appendingPathComponent("MacPadHelper"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: macOS.appendingPathComponent("MacPadHelper").path)
+        try Data("#!/bin/sh\necho \"$*\" >> '\(launchctlLog.path)'\nexit 0\n".utf8).write(to: launchctlStub)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: launchctlStub.path)
+    }
+
+    override func tearDownWithError() throws { try? FileManager.default.removeItem(at: root) }
+
+    @discardableResult
+    private func run(_ script: String, args: [String]) throws -> Int32 {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/sh")
+        p.arguments = [scripts.appendingPathComponent(script).path] + args
+        p.environment = ["MACPAD_LAUNCHD_DIR": daemons.path, "MACPAD_LAUNCHCTL": launchctlStub.path, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
+        p.standardError = Pipe()
+        try p.run()
+        p.waitUntilExit()
+        return p.terminationStatus
+    }
+
+    private func calls() -> [String] {
+        ((try? String(contentsOf: launchctlLog, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init)
+    }
+
+    private var plist: URL { daemons.appendingPathComponent("\(label).plist") }
+
+    func testPostinstallWritesTheDaemonAndStartsIt() throws {
+        XCTAssertEqual(try run("postinstall", args: ["/tmp/MacPad++.pkg", target.path, "/"]), 0)
+
+        let data = try Data(contentsOf: plist)
+        let dict = try XCTUnwrap(try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
+        XCTAssertEqual(dict["Label"] as? String, label)
+        XCTAssertEqual(dict["Program"] as? String, target.appendingPathComponent("MacPad++.app/Contents/MacOS/MacPadHelper").path)
+        XCTAssertEqual((dict["MachServices"] as? [String: Bool])?[label], true)
+        XCTAssertEqual(dict["AssociatedBundleIdentifiers"] as? [String], ["app.macpad.MacPad"])
+        XCTAssertEqual(dict[HelperIdentity.machService] == nil, true)
+        let mode = (try FileManager.default.attributesOfItem(atPath: plist.path)[.posixPermissions] as! NSNumber).intValue
+        XCTAssertEqual(mode, 0o644)
+
+        XCTAssertEqual(calls(), ["bootout system/\(label)", "bootstrap system \(plist.path)"], "old one stopped, new one started")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: daemons.path), ["\(label).plist"], "no temp file left")
+    }
+
+    func testTheDaemonLabelMatchesWhatTheAppConnectsTo() {
+        XCTAssertEqual(label, HelperIdentity.machService)
+        XCTAssertEqual(HelperIdentity.daemonPlistPath, "/Library/LaunchDaemons/\(label).plist")
+    }
+
+    func testReinstallingReplacesTheDaemonCleanly() throws {
+        try run("postinstall", args: ["p", target.path, "/"])
+        try run("postinstall", args: ["p", target.path, "/"])
+        XCTAssertEqual(calls().filter { $0.hasPrefix("bootstrap") }.count, 2)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: daemons.path), ["\(label).plist"])
+    }
+
+    func testAMissingHelperNeverFailsTheInstallation() throws {
+        try FileManager.default.removeItem(at: target.appendingPathComponent("MacPad++.app/Contents/MacOS/MacPadHelper"))
+        XCTAssertEqual(try run("postinstall", args: ["p", target.path, "/"]), 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: plist.path))
+        XCTAssertEqual(calls(), [])
+    }
+
+    func testAFailingLaunchctlNeverFailsTheInstallation() throws {
+        try Data("#!/bin/sh\nexit 5\n".utf8).write(to: launchctlStub)
+        XCTAssertEqual(try run("postinstall", args: ["p", target.path, "/"]), 0)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: plist.path))
+    }
+
+    func testPreinstallStopsTheRunningHelper() throws {
+        XCTAssertEqual(try run("preinstall", args: ["p", target.path, "/"]), 0)
+        XCTAssertEqual(calls(), ["bootout system/\(label)"])
+    }
+
+    func testScriptsAreExecutable() {
+        for name in ["preinstall", "postinstall"] {
+            XCTAssertTrue(FileManager.default.isExecutableFile(atPath: scripts.appendingPathComponent(name).path), name)
+        }
     }
 }
 
 // MARK: - The whole save path with stand-ins for the helper and Touch ID
 
 private final class FakeHelper: AdminHelperService {
-    var status: AdminHelperStatus
+    var available: Bool
     var failInstall = false
     private(set) var installs = 0
-    private(set) var registered = false
-    private(set) var openedSettings = false
     let unlockedDir: String
 
-    init(status: AdminHelperStatus, unlockedDir: String) {
-        self.status = status
+    init(available: Bool, unlockedDir: String) {
+        self.available = available
         self.unlockedDir = unlockedDir
     }
 
-    /// Simulates the user switching MacPad++ on in Login Items after `delay` (nil: never).
-    var approveAfter: TimeInterval?
-
-    func register() throws {
-        registered = true
-        if let approveAfter {
-            DispatchQueue.main.asyncAfter(deadline: .now() + approveAfter) { [weak self] in self?.status = .enabled }
-        }
-    }
-    func openApprovalSettings() { openedSettings = true }
+    func checkAvailable(completion: @escaping (Bool) -> Void) { completion(available) }
 
     /// Plays root: briefly opens the read-only folder, then runs the real install routine.
     func install(_ data: Data, atPath path: String, completion: @escaping (Error?) -> Void) {
@@ -205,6 +278,8 @@ private final class CountingRunner: PrivilegedRunner {
     }
 }
 
+/// MAC-28: one popup per admin save — Touch ID when the installed helper answers, otherwise the
+/// password prompt; never a question from MacPad++.
 final class EditorTabTouchIDSaveTests: XCTestCase {
     private var dir: URL!
     private var url: URL!
@@ -219,51 +294,49 @@ final class EditorTabTouchIDSaveTests: XCTestCase {
         try Data("127.0.0.1 localhost\n".utf8).write(to: url)
         try FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: url.path)
         try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: dir.path)
-        AdminHelperSupport.setupDeclined = false
     }
 
     override func tearDownWithError() throws {
         AdminHelperSupport.helper = savedHelper
         AdminHelperSupport.presence = savedPresence
         PrivilegedSave.runner = savedRunner
-        AppEnvironment.defaults.removeObject(forKey: AdminHelperSupport.setupDeclinedKey)
         try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir.path)
         try? FileManager.default.removeItem(at: dir)
     }
 
+    /// No adminSaveConfirmation: any extra MacPad++ dialog would block the test (no window for it).
     private func editedTab() throws -> EditorTab {
         let tab = EditorTab(untitledNumber: 1)
         try tab.load(url)
         addTeardownBlock { tab.detach() }
         tab.editor.send(SCI_DOCUMENTEND)
         tab.editor.send(SCI_APPENDTEXT, 5, string: "# new")
-        tab.adminSaveConfirmation = { _, answer in answer(true) }
         return tab
     }
 
     private func onDisk() throws -> String { try String(contentsOf: url, encoding: .utf8) }
 
-    func testApprovedHelperUsesTouchIDAndNoPassword() throws {
-        let helper = FakeHelper(status: .enabled, unlockedDir: dir.path)
+    func testInstalledHelperMeansOneTouchIDPopupAndNoPassword() throws {
+        let helper = FakeHelper(available: true, unlockedDir: dir.path)
         let runner = CountingRunner(unlockedDir: dir.path)
-        var reason: String?
+        var touchID = 0
         AdminHelperSupport.helper = helper
-        AdminHelperSupport.presence = FakePresence(answer: true, asked: { reason = $0 })
+        AdminHelperSupport.presence = FakePresence(answer: true, asked: { _ in touchID += 1 })
         PrivilegedSave.runner = runner
         let tab = try editedTab()
         var saved: Bool?
         tab.save { saved = $0 }
 
         XCTAssertEqual(saved, true)
-        XCTAssertEqual(reason, "save \u{201C}hosts\u{201D} as administrator")
-        XCTAssertEqual(helper.installs, 1)
+        XCTAssertEqual(touchID, 1)
         XCTAssertEqual(runner.runs, 0, "no password prompt")
+        XCTAssertEqual(helper.installs, 1)
         XCTAssertEqual(try onDisk(), "127.0.0.1 localhost\n# new")
         XCTAssertFalse(tab.isModified)
     }
 
     func testCancelledTouchIDSavesNothing() throws {
-        let helper = FakeHelper(status: .enabled, unlockedDir: dir.path)
+        let helper = FakeHelper(available: true, unlockedDir: dir.path)
         AdminHelperSupport.helper = helper
         AdminHelperSupport.presence = FakePresence(answer: false)
         let tab = try editedTab()
@@ -276,7 +349,7 @@ final class EditorTabTouchIDSaveTests: XCTestCase {
     }
 
     func testAFailingHelperFallsBackToThePasswordPrompt() throws {
-        let helper = FakeHelper(status: .enabled, unlockedDir: dir.path)
+        let helper = FakeHelper(available: true, unlockedDir: dir.path)
         helper.failInstall = true
         let runner = CountingRunner(unlockedDir: dir.path)
         AdminHelperSupport.helper = helper
@@ -290,179 +363,18 @@ final class EditorTabTouchIDSaveTests: XCTestCase {
         XCTAssertEqual(try onDisk(), "127.0.0.1 localhost\n# new")
     }
 
-    private func waitFor(_ condition: () -> Bool, seconds: TimeInterval = 5) {
-        let deadline = Date().addingTimeInterval(seconds)
-        while !condition(), Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
-    }
-
-    func testAllowingWaitsForLoginItemsThenSavesWithTouchIDOnly() throws {
-        AdminHelperSupport.approvalPollInterval = 0.02
-        defer { AdminHelperSupport.approvalPollInterval = 1.0 }
-        let helper = FakeHelper(status: .notRegistered, unlockedDir: dir.path)
-        helper.approveAfter = 0.1  // the user flips the switch in System Settings
+    func testNoHelperMeansOnePasswordPopupAndNoQuestion() throws {
+        AdminHelperSupport.helper = FakeHelper(available: false, unlockedDir: dir.path)
+        var touchID = 0
+        AdminHelperSupport.presence = FakePresence(answer: true, asked: { _ in touchID += 1 })
         let runner = CountingRunner(unlockedDir: dir.path)
-        var touchIDAsked = 0
-        AdminHelperSupport.helper = helper
-        AdminHelperSupport.presence = FakePresence(answer: true, asked: { _ in touchIDAsked += 1 })
         PrivilegedSave.runner = runner
         let tab = try editedTab()
-        var offered = 0
-        tab.helperSetupChoice = { answer in offered += 1; answer(.setUp) }
-        var saved: Bool?
-        tab.save { saved = $0 }
-        XCTAssertNil(saved, "waiting for approval, no dialog")
-        waitFor { saved != nil }
-
-        XCTAssertEqual(offered, 1)
-        XCTAssertTrue(helper.registered)
-        XCTAssertTrue(helper.openedSettings, "System Settings › Login Items opened for approval")
-        XCTAssertEqual(saved, true)
-        XCTAssertEqual(touchIDAsked, 1, "one popup: Touch ID")
-        XCTAssertEqual(runner.runs, 0, "no password prompt")
-        XCTAssertEqual(helper.installs, 1)
-        XCTAssertEqual(try onDisk(), "127.0.0.1 localhost\n# new")
-    }
-
-    func testEditsMadeWhileWaitingAreWhatGetsSaved() throws {
-        AdminHelperSupport.approvalPollInterval = 0.02
-        defer { AdminHelperSupport.approvalPollInterval = 1.0 }
-        let helper = FakeHelper(status: .notRegistered, unlockedDir: dir.path)
-        helper.approveAfter = 0.2
-        AdminHelperSupport.helper = helper
-        AdminHelperSupport.presence = FakePresence(answer: true)
-        let tab = try editedTab()
-        tab.helperSetupChoice = { answer in answer(.setUp) }
-        var saved: Bool?
-        tab.save { saved = $0 }
-        tab.editor.send(SCI_APPENDTEXT, 6, string: " later")
-        waitFor { saved != nil }
-        XCTAssertEqual(try onDisk(), "127.0.0.1 localhost\n# new later")
-    }
-
-    func testNotApprovedInTimeLeavesTheTabUnsavedWithoutAPasswordPopup() throws {
-        AdminHelperSupport.approvalPollInterval = 0.02
-        AdminHelperSupport.approvalTimeout = 0.2
-        defer { AdminHelperSupport.approvalPollInterval = 1.0; AdminHelperSupport.approvalTimeout = 180 }
-        let helper = FakeHelper(status: .notRegistered, unlockedDir: dir.path)  // never approved
-        let runner = CountingRunner(unlockedDir: dir.path)
-        AdminHelperSupport.helper = helper
-        PrivilegedSave.runner = runner
-        let tab = try editedTab()
-        tab.helperSetupChoice = { answer in answer(.setUp) }
-        var saved: Bool?
-        tab.save { saved = $0 }
-        waitFor { saved != nil }
-        XCTAssertEqual(saved, false)
-        XCTAssertEqual(runner.runs, 0)
-        XCTAssertTrue(tab.isModified)
-        XCTAssertEqual(try onDisk(), "127.0.0.1 localhost\n")
-    }
-
-    func testNotNowUsesOnePasswordPrompt() throws {
-        let helper = FakeHelper(status: .notRegistered, unlockedDir: dir.path)
-        let runner = CountingRunner(unlockedDir: dir.path)
-        AdminHelperSupport.helper = helper
-        PrivilegedSave.runner = runner
-        let tab = try editedTab()
-        tab.helperSetupChoice = { answer in answer(.notNow) }
         var saved: Bool?
         tab.save { saved = $0 }
         XCTAssertEqual(saved, true)
         XCTAssertEqual(runner.runs, 1)
-        XCTAssertFalse(helper.registered)
-    }
-
-    func testDontAskAgainIsRemembered() throws {
-        let helper = FakeHelper(status: .notRegistered, unlockedDir: dir.path)
-        let runner = CountingRunner(unlockedDir: dir.path)
-        AdminHelperSupport.helper = helper
-        PrivilegedSave.runner = runner
-        var offered = 0
-        let first = try editedTab()
-        first.helperSetupChoice = { answer in offered += 1; answer(.dontAskAgain) }
-        first.save()
-        XCTAssertTrue(AdminHelperSupport.setupDeclined)
-        XCTAssertFalse(helper.registered)
-
-        let second = try editedTab()
-        second.helperSetupChoice = { answer in offered += 1; answer(.setUp) }
-        second.editor.send(SCI_APPENDTEXT, 1, string: "!")
-        second.save()
-        XCTAssertEqual(offered, 1, "not asked again")
-        XCTAssertEqual(runner.runs, 2)
-    }
-
-    func testUnavailableHelperGoesStraightToThePassword() throws {
-        AdminHelperSupport.helper = FakeHelper(status: .unavailable, unlockedDir: dir.path)
-        let runner = CountingRunner(unlockedDir: dir.path)
-        PrivilegedSave.runner = runner
-        let tab = try editedTab()
-        var offered = false
-        tab.helperSetupChoice = { answer in offered = true; answer(.notNow) }
-        tab.save()
-        XCTAssertFalse(offered)
-        XCTAssertEqual(runner.runs, 1)
+        XCTAssertEqual(touchID, 0)
         XCTAssertFalse(tab.isModified)
-    }
-}
-
-/// MAC-27: one popup per save, and the helper is offered on a correctly signed build.
-final class AdminSaveOnePopupTests: XCTestCase {
-    func testANeverRegisteredHelperOnASignedBuildCountsAsNotRegistered() {
-        XCTAssertEqual(AdminHelperStatus.from(.notFound, signedByTeam: true), .notRegistered)
-        XCTAssertEqual(AdminSaveRoute.decide(status: .from(.notFound, signedByTeam: true), setupDeclined: false), .offerSetup)
-    }
-
-    func testStatusMapping() {
-        XCTAssertEqual(AdminHelperStatus.from(.enabled, signedByTeam: true), .enabled)
-        XCTAssertEqual(AdminHelperStatus.from(.requiresApproval, signedByTeam: true), .requiresApproval)
-        XCTAssertEqual(AdminHelperStatus.from(.notRegistered, signedByTeam: true), .notRegistered)
-        for s in [SMAppService.Status.enabled, .requiresApproval, .notRegistered, .notFound] {
-            XCTAssertEqual(AdminHelperStatus.from(s, signedByTeam: false), .unavailable, "unsigned builds never use the helper")
-        }
-    }
-
-    func testAPermissionErrorGoesStraightToTheAdminSaveWithoutAQuestion() throws {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("onepopup-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let url = dir.appendingPathComponent("hosts")
-        try Data("a\n".utf8).write(to: url)
-        try FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: url.path)
-        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: dir.path)
-        let savedRunner = PrivilegedSave.runner, savedHelper = AdminHelperSupport.helper
-        defer {
-            PrivilegedSave.runner = savedRunner
-            AdminHelperSupport.helper = savedHelper
-            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir.path)
-            try? FileManager.default.removeItem(at: dir)
-        }
-        AdminHelperSupport.helper = FakeHelper(status: .unavailable, unlockedDir: dir.path)
-        let runner = CountingRunner(unlockedDir: dir.path)
-        PrivilegedSave.runner = runner
-
-        let tab = EditorTab(untitledNumber: 1)
-        defer { tab.detach() }
-        try tab.load(url)
-        tab.editor.send(SCI_APPENDTEXT, 2, string: "b\n")
-        // No adminSaveConfirmation set: an extra alert here would block the test (no window to
-        // put it on). The only prompt is the system's (the runner).
-        var saved: Bool?
-        tab.save { saved = $0 }
-        XCTAssertEqual(saved, true)
-        XCTAssertEqual(runner.runs, 1)
-        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "a\nb\n")
-    }
-}
-
-/// MAC-27: the one-time question asks for permission to use the existing Touch ID; it must not
-/// read as if Touch ID itself had to be set up.
-final class HelperSetupPromptTests: XCTestCase {
-    func testWordingAsksForPermissionNotForTouchIDSetUp() {
-        XCTAssertEqual(HelperSetupPrompt.title, "Allow Touch ID for administrator saves?")
-        let all = ([HelperSetupPrompt.title, HelperSetupPrompt.message] + HelperSetupPrompt.buttons).joined(separator: " ")
-        XCTAssertFalse(all.contains("Set Up Touch ID"))
-        XCTAssertTrue(HelperSetupPrompt.message.contains("Login Items"))
-        XCTAssertTrue(HelperSetupPrompt.message.contains("This save will still ask for your password"))
-        XCTAssertEqual(HelperSetupPrompt.buttons.count, 3, "matches .setUp / .notNow / .dontAskAgain")
     }
 }

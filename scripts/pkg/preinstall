@@ -1,0 +1,7 @@
+#!/bin/sh
+# MacPad++ package preinstall (runs as root before the app is copied) — MAC-28.
+# Stops a running privileged helper so its binary can be replaced. Never fails the installation.
+# Test override (never set by Installer): MACPAD_LAUNCHCTL.
+LAUNCHCTL="${MACPAD_LAUNCHCTL:-/bin/launchctl}"
+"$LAUNCHCTL" bootout "system/app.macpad.MacPad.helper" >/dev/null 2>&1 || true
+exit 0

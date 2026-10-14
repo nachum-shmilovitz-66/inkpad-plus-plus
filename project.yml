@@ -20,12 +20,6 @@ targets:
       - path: MacPad/Sources
       - path: MacPad/Resources
       - path: MacPad/Shared
-      # MAC-24: launchd plist of the privileged helper, where SMAppService.daemon looks for it.
-      - path: MacPad/Helper/app.macpad.MacPad.helper.plist
-        buildPhase:
-          copyFiles:
-            destination: wrapper
-            subpath: Contents/Library/LaunchDaemons
     settings:
       base:
         PRODUCT_NAME: MacPad++
@@ -75,7 +69,6 @@ targets:
     platform: macOS
     sources:
       - path: MacPad/Helper
-        excludes: ["*.plist"]
       - path: MacPad/Shared
     settings:
       base:

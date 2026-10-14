@@ -1,75 +1,24 @@
 import AppKit
 import LocalAuthentication
 import Security
-import ServiceManagement
 
-// Touch ID for Save as Administrator (MAC-24): MacPad++'s privileged helper, as seen from the app.
-// With the helper approved, an admin save asks for Touch ID and the helper writes the file; without
-// it, MAC-22's password prompt is used.
-
-enum AdminHelperStatus: Equatable {
-    case enabled
-    /// Registered; the user still has to switch it on in System Settings › Login Items.
-    case requiresApproval
-    case notRegistered
-    /// This build cannot use it (not signed with the team's Developer ID, or no helper inside).
-    case unavailable
-}
-
-extension AdminHelperStatus {
-    /// Maps SMAppService's view to ours. Only builds signed with the team's Developer ID can use the
-    /// helper (code-signing requirements on both ends). macOS reports a daemon that was never
-    /// registered as `.notFound` (MAC-27), so for such a build that means "not registered yet":
-    /// registering is offered, and a helper that is truly missing makes registration fail, after
-    /// which the password prompt is used.
-    static func from(_ service: SMAppService.Status, signedByTeam: Bool) -> AdminHelperStatus {
-        guard signedByTeam else { return .unavailable }
-        switch service {
-        case .enabled: return .enabled
-        case .requiresApproval: return .requiresApproval
-        case .notRegistered, .notFound: return .notRegistered
-        @unknown default: return .unavailable
-        }
-    }
-}
+// Touch ID for Save as Administrator (MAC-24, MAC-28): MacPad++'s privileged helper, as seen from
+// the app. The .pkg installs the helper as a launchd daemon (scripts/pkg/postinstall) — the user
+// approves that with the installation itself, so there is no further set-up and no question here.
+// When the helper answers, an admin save is one Touch ID popup; when it does not (a copy installed
+// without the .pkg, or the helper switched off in Login Items), it is one password popup (MAC-22).
 
 /// Which way an admin save goes.
 enum AdminSaveRoute: Equatable {
     case touchID
-    /// The helper could be set up: offer it, and use the password this time.
-    case offerSetup
     case password
 
-    static func decide(status: AdminHelperStatus, setupDeclined: Bool) -> AdminSaveRoute {
-        switch status {
-        case .enabled: return .touchID
-        case .requiresApproval, .notRegistered: return setupDeclined ? .password : .offerSetup
-        case .unavailable: return .password
-        }
-    }
-}
-
-/// The one-time question that lets MacPad++ use the Mac's existing Touch ID for admin saves.
-/// It asks for permission (the helper switch in Login Items) — it does not set up Touch ID itself,
-/// which the first wording wrongly suggested (MAC-27, user feedback 2026-10-14).
-enum HelperSetupPrompt {
-    static let title = "Allow Touch ID for administrator saves?"
-    static let message = "Your Mac\u{2019}s Touch ID can approve saves like this one instead of your password. "
-        + "To allow it, switch MacPad++ on once in System Settings \u{203A} General \u{203A} Login Items "
-        + "(\u{201C}Allow in the Background\u{201D}). This save will still ask for your password."
-    /// In order: allow (.setUp), not now, don't ask again.
-    static let buttons = ["Allow in Login Items\u{2026}", "Not Now", "Don\u{2019}t Ask Again"]
-}
-
-/// The user's answer to "Allow Touch ID for administrator saves?".
-enum HelperSetupChoice: Equatable {
-    case setUp, notNow, dontAskAgain
+    static func decide(helperAvailable: Bool) -> AdminSaveRoute { helperAvailable ? .touchID : .password }
 }
 
 protocol AdminHelperService: AnyObject {
-    var status: AdminHelperStatus { get }
-    func register() throws
-    func openApprovalSettings()
+    /// Whether the installed helper answers (and is the version this app speaks). Main queue.
+    func checkAvailable(completion: @escaping (Bool) -> Void)
     func install(_ data: Data, atPath path: String, completion: @escaping (Error?) -> Void)
 }
 
@@ -79,14 +28,8 @@ protocol UserPresenceCheck {
 }
 
 enum AdminHelperSupport {
-    static var helper: AdminHelperService = SMAdminHelper()
+    static var helper: AdminHelperService = XPCAdminHelper()
     static var presence: UserPresenceCheck = DeviceOwnerPresence()
-
-    static let setupDeclinedKey = "AdminHelperSetupDeclined"
-    static var setupDeclined: Bool {
-        get { AppEnvironment.defaults.bool(forKey: setupDeclinedKey) }
-        set { AppEnvironment.defaults.set(newValue, forKey: setupDeclinedKey) }
-    }
 
     /// The team that signed this running app, if any (nil for ad-hoc and development builds).
     static var signingTeam: String? {
@@ -98,24 +41,6 @@ enum AdminHelperSupport {
         guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
               let dict = info as? [String: Any] else { return nil }
         return dict[kSecCodeInfoTeamIdentifier as String] as? String
-    }
-
-    /// Time for a closing sheet's animation before anything modal starts (MAC-27).
-    static var sheetSettleDelay: TimeInterval = 0.4
-    /// How often, and how long, to look for the user's switch in Login Items.
-    static var approvalPollInterval: TimeInterval = 1.0
-    static var approvalTimeout: TimeInterval = 180
-
-    /// Calls back once the helper is enabled (true), or after the timeout (false). Polls on the
-    /// main run loop — nothing is shown and nothing blocks while the user is in System Settings.
-    static func waitForApproval(of helper: AdminHelperService, completion: @escaping (Bool) -> Void) {
-        let deadline = Date().addingTimeInterval(approvalTimeout)
-        func check() {
-            if helper.status == .enabled { completion(true); return }
-            if Date() >= deadline { NSLog("MacPad++: helper not approved in time"); completion(false); return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + approvalPollInterval, execute: check)
-        }
-        check()
     }
 
     static func reason(for url: URL) -> String {
@@ -132,29 +57,28 @@ struct DeviceOwnerPresence: UserPresenceCheck {
     }
 }
 
-/// The real helper: SMAppService for registration, XPC for requests.
-final class SMAdminHelper: AdminHelperService {
-    private let service = SMAppService.daemon(plistName: HelperIdentity.daemonPlist)
+/// The real helper, reached over XPC at its launchd Mach service.
+final class XPCAdminHelper: AdminHelperService {
+    /// How long to wait for the helper's answer before using the password prompt instead.
+    static var availabilityTimeout: TimeInterval = 1.5
 
-    var status: AdminHelperStatus {
-        let status = AdminHelperStatus.from(service.status,
-                                            signedByTeam: AdminHelperSupport.signingTeam == HelperIdentity.teamID)
-        NSLog("MacPad++: privileged helper status \(service.status.rawValue) -> \(status)")
-        return status
+    func checkAvailable(completion: @escaping (Bool) -> Void) {
+        // Code-signing requirements on both ends only match the team's Developer ID builds.
+        guard AdminHelperSupport.signingTeam == HelperIdentity.teamID else { completion(false); return }
+        let connection = makeConnection()
+        let finish = Once.callback { (ok: Bool) in
+            connection.invalidate()
+            NSLog("MacPad++: privileged helper \(ok ? "available" : "not available")")
+            DispatchQueue.main.async { completion(ok) }
+        }
+        let proxy = connection.remoteObjectProxyWithErrorHandler { _ in finish(false) } as? MacPadHelperProtocol
+        proxy?.version { finish($0 == HelperIdentity.helperVersion) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.availabilityTimeout) { finish(false) }
     }
 
-    func register() throws { try service.register() }
-
-    func openApprovalSettings() { SMAppService.openSystemSettingsLoginItems() }
-
     func install(_ data: Data, atPath path: String, completion: @escaping (Error?) -> Void) {
-        let connection = NSXPCConnection(machServiceName: HelperIdentity.machService, options: .privileged)
-        connection.setCodeSigningRequirement(HelperIdentity.helperRequirement)
-        connection.remoteObjectInterface = NSXPCInterface(with: MacPadHelperProtocol.self)
-        connection.resume()
-        let once = Once()
-        let finish: (Error?) -> Void = { error in
-            guard once.claim() else { return }
+        let connection = makeConnection()
+        let finish = Once.callback { (error: Error?) in
             connection.invalidate()
             DispatchQueue.main.async { completion(error) }
         }
@@ -163,11 +87,25 @@ final class SMAdminHelper: AdminHelperService {
         proxy.install(data, atPath: path) { message in finish(message.map { FileInstaller.Failure.io($0) }) }
     }
 
-    /// XPC may report both a reply and an interruption; only the first counts.
+    private func makeConnection() -> NSXPCConnection {
+        let connection = NSXPCConnection(machServiceName: HelperIdentity.machService, options: .privileged)
+        connection.setCodeSigningRequirement(HelperIdentity.helperRequirement)
+        connection.remoteObjectInterface = NSXPCInterface(with: MacPadHelperProtocol.self)
+        connection.resume()
+        return connection
+    }
+
+    /// XPC may report a reply, an interruption and a timeout; only the first counts.
     private final class Once {
         private let lock = NSLock()
         private var done = false
-        func claim() -> Bool {
+
+        static func callback<T>(_ body: @escaping (T) -> Void) -> (T) -> Void {
+            let once = Once()
+            return { value in if once.claim() { body(value) } }
+        }
+
+        private func claim() -> Bool {
             lock.lock(); defer { lock.unlock() }
             if done { return false }
             done = true

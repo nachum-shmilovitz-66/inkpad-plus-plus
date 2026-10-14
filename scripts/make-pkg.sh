@@ -62,8 +62,11 @@ rm -rf "$STAGE" "$COMPONENT"
 mkdir -p "$STAGE"
 ditto "$APP" "$STAGE/MacPad++.app"
 
+# scripts/pkg: preinstall stops a running helper, postinstall installs it as a launchd daemon
+# (MAC-28) — the Touch ID path for administrator saves, approved with the installation itself.
 pkgbuild --quiet \
   --root "$STAGE" \
+  --scripts "$ROOT/scripts/pkg" \
   --install-location /Applications \
   --identifier app.macpad.MacPad \
   --version "$VERSION" \

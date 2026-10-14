@@ -119,82 +119,32 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         proceed(true)
     }
 
-    /// Answers "Use Touch ID for administrator saves?"; nil means the standard alert (tests set it).
-    var helperSetupChoice: ((@escaping (HelperSetupChoice) -> Void) -> Void)?
-
-    /// MAC-24: Touch ID through the helper when it is approved; otherwise offer to set it up and
-    /// use MAC-22's password prompt.
+    /// MAC-24 / MAC-28: Touch ID through the helper the installer set up; otherwise MAC-22's
+    /// password prompt. Either way, one popup.
     private func adminSave(_ data: Data, to url: URL, completion: @escaping (Bool) -> Void) {
         let helper = AdminHelperSupport.helper
-        switch AdminSaveRoute.decide(status: helper.status, setupDeclined: AdminHelperSupport.setupDeclined) {
-        case .touchID:
-            AdminHelperSupport.presence.confirm(reason: AdminHelperSupport.reason(for: url)) { [weak self] confirmed in
-                guard let self else { return }
-                guard confirmed else { completion(false); return }  // cancelled Touch ID: stay dirty
-                helper.install(data, atPath: url.path) { [weak self] error in
+        helper.checkAvailable { [weak self] available in
+            guard let self else { return }
+            switch AdminSaveRoute.decide(helperAvailable: available) {
+            case .touchID:
+                AdminHelperSupport.presence.confirm(reason: AdminHelperSupport.reason(for: url)) { [weak self] confirmed in
                     guard let self else { return }
-                    if let error {
-                        NSLog("MacPad++: helper could not save \(url.path) (\(error.localizedDescription)); using the password prompt")
-                        self.passwordSave(data, to: url, completion: completion)
-                    } else {
-                        self.didWrite(to: url)
-                        completion(true)
-                    }
-                }
-            }
-        case .offerSetup:
-            askHelperSetup { [weak self] choice in
-                guard let self else { return }
-                switch choice {
-                case .setUp:
-                    do {
-                        try helper.register()
-                    } catch {
-                        NSLog("MacPad++: helper registration failed: \(error.localizedDescription)")
-                    }
-                    helper.openApprovalSettings()
-                    // No password popup for this save: wait (without any dialog) for the switch in
-                    // Login Items, then save what is in the editor at that moment — through the
-                    // Touch ID route. If it is not switched on in time, the tab simply stays
-                    // unsaved (MAC-27: one popup per save).
-                    AdminHelperSupport.waitForApproval(of: helper) { [weak self] approved in
+                    guard confirmed else { completion(false); return }  // cancelled Touch ID: stay dirty
+                    helper.install(data, atPath: url.path) { [weak self] error in
                         guard let self else { return }
-                        guard approved else { completion(false); return }
-                        self.write(to: url, completion: completion)
+                        if let error {
+                            NSLog("MacPad++: helper could not save \(url.path) (\(error.localizedDescription)); using the password prompt")
+                            self.passwordSave(data, to: url, completion: completion)
+                        } else {
+                            self.didWrite(to: url)
+                            completion(true)
+                        }
                     }
-                    return
-                case .dontAskAgain:
-                    AdminHelperSupport.setupDeclined = true
-                case .notNow:
-                    break
                 }
+            case .password:
                 self.passwordSave(data, to: url, completion: completion)
             }
-        case .password:
-            passwordSave(data, to: url, completion: completion)
         }
-    }
-
-    private func askHelperSetup(_ answer: @escaping (HelperSetupChoice) -> Void) {
-        if let helperSetupChoice { helperSetupChoice(answer); return }
-        let alert = NSAlert()
-        let texts = HelperSetupPrompt.self
-        alert.messageText = texts.title
-        alert.informativeText = texts.message
-        texts.buttons.forEach { alert.addButton(withTitle: $0) }
-        let handle: (NSApplication.ModalResponse) -> Void = { response in
-            let choice: HelperSetupChoice
-            switch response {
-            case .alertFirstButtonReturn: choice = .setUp
-            case .alertThirdButtonReturn: choice = .dontAskAgain
-            default: choice = .notNow
-            }
-            // The password prompt that may follow blocks the app; give this sheet time to leave
-            // the screen first, so only one dialog is ever visible (MAC-27).
-            alert.window.orderOut(nil)
-            DispatchQueue.main.asyncAfter(deadline: .now() + AdminHelperSupport.sheetSettleDelay) { answer(choice) }
-        }
-        if let hostWindow { alert.beginSheetModal(for: hostWindow, completionHandler: handle) } else { handle(alert.runModal()) }
     }
 
     /// MAC-22: macOS's administrator password prompt runs the install script as root.

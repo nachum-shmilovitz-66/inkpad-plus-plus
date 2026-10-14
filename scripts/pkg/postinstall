@@ -1,0 +1,57 @@
+#!/bin/sh
+# MacPad++ package postinstall (runs as root after the app is copied) — MAC-28.
+# Installs MacPad++'s privileged helper as a launchd daemon, so administrator saves can use Touch ID
+# without any further approval step: the user already approved this installation.
+# Never fails the installation: without the helper, MacPad++ falls back to the password prompt.
+# Test overrides (never set by Installer): MACPAD_LAUNCHD_DIR, MACPAD_LAUNCHCTL.
+set -u
+
+LABEL="app.macpad.MacPad.helper"
+TARGET="${2:-/Applications}"                       # the package's install location
+HELPER="$TARGET/MacPad++.app/Contents/MacOS/MacPadHelper"
+DAEMONS="${MACPAD_LAUNCHD_DIR:-/Library/LaunchDaemons}"
+LAUNCHCTL="${MACPAD_LAUNCHCTL:-/bin/launchctl}"
+PLIST="$DAEMONS/$LABEL.plist"
+
+if [ ! -x "$HELPER" ]; then
+  echo "MacPad++: helper not found at $HELPER; administrator saves will use the password prompt" >&2
+  exit 0
+fi
+
+# Replace a running helper (from a previous version) cleanly.
+"$LAUNCHCTL" bootout "system/$LABEL" >/dev/null 2>&1 || true
+
+# XML-escape the path for the plist (the install location could in principle contain & < >).
+ESCAPED=$(printf '%s' "$HELPER" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')
+
+mkdir -p "$DAEMONS"
+TMP="$PLIST.macpad-tmp.$$"
+cat > "$TMP" <<PLIST_END
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>$LABEL</string>
+	<key>Program</key>
+	<string>$ESCAPED</string>
+	<key>MachServices</key>
+	<dict>
+		<key>$LABEL</key>
+		<true/>
+	</dict>
+	<key>AssociatedBundleIdentifiers</key>
+	<array>
+		<string>app.macpad.MacPad</string>
+	</array>
+</dict>
+</plist>
+PLIST_END
+chmod 644 "$TMP"
+if [ "$(id -u)" = "0" ]; then chown root:wheel "$TMP"; fi
+mv -f "$TMP" "$PLIST"
+
+if ! "$LAUNCHCTL" bootstrap system "$PLIST"; then
+  echo "MacPad++: could not start the helper; administrator saves will use the password prompt" >&2
+fi
+exit 0

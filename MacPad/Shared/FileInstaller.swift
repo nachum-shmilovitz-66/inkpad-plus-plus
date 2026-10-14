@@ -70,7 +70,8 @@ enum FileInstaller {
 /// What MacPad++ and its helper agree on (names, and who may talk to whom).
 enum HelperIdentity {
     static let machService = "app.macpad.MacPad.helper"
-    static let daemonPlist = "app.macpad.MacPad.helper.plist"
+    /// Where the installer's postinstall writes the helper's launchd plist (MAC-28).
+    static let daemonPlistPath = "/Library/LaunchDaemons/app.macpad.MacPad.helper.plist"
     static let teamID = "96Y4LX7FVB"
     static let appIdentifier = "app.macpad.MacPad"
     /// Bumped when the protocol changes, so the app can tell a stale helper from a current one.
