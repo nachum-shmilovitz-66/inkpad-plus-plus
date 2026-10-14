@@ -66,6 +66,7 @@ targets:
           mkdir -p "$DEST"
           cp "$NPP/src/langs.model.xml" "$NPP/src/stylers.model.xml" "$DEST/"
           rsync -a --delete "$NPP/installer/themes/" "$DEST/themes/"
+          rsync -a --delete "$NPP/installer/functionList/" "$DEST/functionList/"
 
   # MAC-24: privileged helper (launchd daemon via SMAppService); runs as root, writes one file per
   # request, only for MacPad++ signed by the same team.

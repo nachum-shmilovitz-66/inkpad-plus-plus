@@ -14,6 +14,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private let statusBar = StatusBar()
     /// The editor above, Notepad++'s "Search results" panel docked below (MAC-32).
     private let splitView = NSSplitView()
+    /// Left dock | documents | right dock.
+    private let dockSplit = NSSplitView()
+    let leftDock = NSSplitView()
+    let rightDock = NSSplitView()
     private var themeObserver: NSObjectProtocol?
     private var preferencesObserver: NSObjectProtocol?
     let searchResults = SearchResultsPanel()
@@ -54,20 +58,47 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         splitView.setContentHuggingPriority(.defaultLow, for: .vertical)
         incrementalBar.setContentHuggingPriority(.required, for: .vertical)
 
-        let content = NSView()
-        content.addSubview(tabBar)
-        content.addSubview(column)
-        content.addSubview(statusBar)
+        // Docked panels beside the documents, as Notepad++ docks them (milestone 6): Folder as
+        // Workspace on the left, Function List and Document Map on the right.
+        let center = NSView()
+        center.addSubview(tabBar)
+        center.addSubview(column)
         NSLayoutConstraint.activate([
-            tabBar.topAnchor.constraint(equalTo: content.topAnchor),
-            tabBar.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            tabBar.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            tabBar.topAnchor.constraint(equalTo: center.topAnchor),
+            tabBar.leadingAnchor.constraint(equalTo: center.leadingAnchor),
+            tabBar.trailingAnchor.constraint(equalTo: center.trailingAnchor),
             column.topAnchor.constraint(equalTo: tabBar.bottomAnchor),
-            column.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            column.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            column.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
+            column.leadingAnchor.constraint(equalTo: center.leadingAnchor),
+            column.trailingAnchor.constraint(equalTo: center.trailingAnchor),
+            column.bottomAnchor.constraint(equalTo: center.bottomAnchor),
             splitView.widthAnchor.constraint(equalTo: column.widthAnchor),
             incrementalBar.widthAnchor.constraint(equalTo: column.widthAnchor),
+        ])
+        dockSplit.isVertical = true
+        dockSplit.dividerStyle = .thin
+        dockSplit.translatesAutoresizingMaskIntoConstraints = false
+        leftDock.isVertical = false
+        rightDock.isVertical = false
+        for dock in [leftDock, rightDock] {
+            dock.dividerStyle = .thin
+            dock.isHidden = true
+            dock.widthAnchor.constraint(greaterThanOrEqualToConstant: 160).isActive = true
+        }
+        dockSplit.addArrangedSubview(leftDock)
+        dockSplit.addArrangedSubview(center)
+        dockSplit.addArrangedSubview(rightDock)
+        dockSplit.setHoldingPriority(.defaultLow + 10, forSubviewAt: 0)
+        dockSplit.setHoldingPriority(.defaultLow - 10, forSubviewAt: 1)
+        dockSplit.setHoldingPriority(.defaultLow + 10, forSubviewAt: 2)
+
+        let content = NSView()
+        content.addSubview(dockSplit)
+        content.addSubview(statusBar)
+        NSLayoutConstraint.activate([
+            dockSplit.topAnchor.constraint(equalTo: content.topAnchor),
+            dockSplit.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            dockSplit.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            dockSplit.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
             statusBar.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             statusBar.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             statusBar.bottomAnchor.constraint(equalTo: content.bottomAnchor),
@@ -258,11 +289,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     }
 
     @IBAction func saveDocument(_ sender: Any?) {
-        activeTab?.save { [weak self] saved in if saved { self?.persistSession() } }
+        activeTab?.save { [weak self] saved in if saved { self?.persistSession(); self?.reloadFunctionList() } }
     }
 
     @IBAction func saveDocumentAs(_ sender: Any?) {
-        activeTab?.saveAs { [weak self] saved in if saved { self?.persistSession() } }
+        activeTab?.saveAs { [weak self] saved in if saved { self?.persistSession(); self?.reloadFunctionList() } }
     }
 
     // MARK: - Status bar pickers (encoding, line endings)
@@ -499,6 +530,83 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         }
     }
 
+    // MARK: - Function List (MAC-44)
+
+    let functionList = FunctionListPanel()
+    private(set) lazy var functionListDock: DockPanel = {
+        let dock = DockPanel(title: "Function List", content: functionList)
+        dock.addTool(symbol: "arrow.up.arrow.down", tip: "Sort", target: functionList, action: #selector(FunctionListPanel.toggleSort(_:)))
+        dock.addTool(symbol: "arrow.clockwise", tip: "Reload", target: self, action: #selector(reloadFunctionListClicked(_:)))
+        dock.onClose = { [weak self] in self?.setFunctionListVisible(false) }
+        functionList.onJump = { [weak self] editor, position in self?.jumpToFunction(editor, position) }
+        return dock
+    }()
+
+    var isFunctionListVisible: Bool { isPanelVisible(functionListDock) }
+
+    @IBAction func toggleFunctionList(_ sender: Any?) { setFunctionListVisible(!isFunctionListVisible) }
+
+    func setFunctionListVisible(_ visible: Bool) {
+        setPanel(functionListDock, visible: visible, in: rightDock)
+        if visible { reloadFunctionList() }
+    }
+
+    @objc private func reloadFunctionListClicked(_ sender: Any?) { reloadFunctionList() }
+
+    /// Parses the visible document again (Notepad++: activation, language change, save, Reload).
+    func reloadFunctionList() {
+        guard isFunctionListVisible, let tab = activeTab else { return }
+        functionList.reload(editor: tab.editor, language: tab.language.name, fileName: tab.displayName)
+        markFunction()
+    }
+
+    /// Another tab or language re-parses; the caret's function stays selected.
+    private func refreshFunctionList() {
+        guard isFunctionListVisible, let tab = activeTab else { return }
+        if functionList.parsedEditor !== tab.editor || functionList.parsedLanguage != tab.language.name {
+            reloadFunctionList()
+        } else {
+            markFunction()
+        }
+    }
+
+    private func markFunction() {
+        guard let editor = activeTab?.editor else { return }
+        functionList.markEntry(caretLine: editor.send(SCI_LINEFROMPOSITION, editor.send(SCI_GETCURRENTPOS)))
+    }
+
+    /// The caret at the function's name, its line centred, the editor focused (scrollPosToCenter).
+    private func jumpToFunction(_ editor: ScintillaView, _ position: Int) {
+        let line = editor.send(SCI_LINEFROMPOSITION, position)
+        editor.send(SCI_ENSUREVISIBLE, line)
+        editor.send(SCI_GOTOPOS, position)
+        editor.send(SCI_SETFIRSTVISIBLELINE, max(editor.send(SCI_VISIBLEFROMDOCLINE, line) - editor.send(SCI_LINESONSCREEN) / 2, 0))
+        window?.makeFirstResponder(editor)
+    }
+
+    // MARK: - Docked panels (milestone 6)
+
+    /// Shows or hides a docked panel; a dock with nothing visible takes no room.
+    func setPanel(_ panel: NSView, visible: Bool, in dock: NSSplitView, width: CGFloat = 260) {
+        if visible && panel.superview !== dock { dock.addArrangedSubview(panel) }
+        panel.isHidden = !visible
+        let wasHidden = dock.isHidden
+        dock.isHidden = !dock.arrangedSubviews.contains { !$0.isHidden }
+        dock.adjustSubviews()
+        dockSplit.adjustSubviews()
+        if wasHidden && !dock.isHidden {
+            window?.contentView?.layoutSubtreeIfNeeded()
+            let total = dockSplit.bounds.width
+            if dock === leftDock {
+                dockSplit.setPosition(width, ofDividerAt: 0)
+            } else {
+                dockSplit.setPosition(total - width, ofDividerAt: 1)
+            }
+        }
+    }
+
+    func isPanelVisible(_ panel: NSView) -> Bool { panel.superview != nil && !panel.isHidden }
+
     // MARK: - Themes (MAC-36)
 
     /// Every editor and the Search results panel take the selected theme.
@@ -686,6 +794,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return !running || mine
         case #selector(commentCommand(_:)), #selector(changeIndent(_:)), #selector(lineOperation(_:)), #selector(blankOperation(_:)):
             return activeTab?.isReadOnly == false
+        case #selector(toggleFunctionList(_:)):
+            item.state = isFunctionListVisible ? .on : .off
         case #selector(selectLanguage(_:)):
             item.state = (item.representedObject as? String) == activeTab?.language.name ? .on : .off
         case #selector(toggleMonitoring(_:)):
@@ -729,6 +839,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         for (index, tab) in tabs.items.enumerated() {
             tab.editor.isHidden = index != tabs.activeIndex
         }
+        refreshFunctionList()
         tabBar.reload(
             tabs: tabs.items.map { ($0.tabLabel, $0.fileURL?.path) },
             activeIndex: tabs.activeIndex)
