@@ -4,7 +4,7 @@
 # without any further approval step: the user already approved this installation.
 # Never fails the installation: without the helper, MacPad++ falls back to the password prompt.
 # Test overrides (never set by Installer): MACPAD_LAUNCHD_DIR, MACPAD_LAUNCHCTL, MACPAD_BIN_DIR,
-# MACPAD_SECURITY.
+# MACPAD_SECURITY, MACPAD_HELPER_TOOLS_DIR.
 set -u
 
 LABEL="app.macpad.MacPad.helper"
@@ -13,6 +13,10 @@ HELPER="$TARGET/MacPad++.app/Contents/MacOS/MacPadHelper"
 DAEMONS="${MACPAD_LAUNCHD_DIR:-/Library/LaunchDaemons}"
 LAUNCHCTL="${MACPAD_LAUNCHCTL:-/bin/launchctl}"
 PLIST="$DAEMONS/$LABEL.plist"
+# MAC-56: launchd runs a root-owned copy of the helper, outside /Applications (which admin-group
+# processes can write: replacing the bundle must not replace what runs as root).
+TOOLS="${MACPAD_HELPER_TOOLS_DIR:-/Library/PrivilegedHelperTools}"
+INSTALLED="$TOOLS/$LABEL"
 
 # MAC-52: the `macpad` command-line tool on the PATH, as a link into the app. A `macpad` there that
 # is not MacPad++'s own link is left alone.
@@ -67,8 +71,20 @@ fi
 # Replace a running helper (from a previous version) cleanly.
 "$LAUNCHCTL" bootout "system/$LABEL" >/dev/null 2>&1 || true
 
-# XML-escape the path for the plist (the install location could in principle contain & < >).
-ESCAPED=$(printf '%s' "$HELPER" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')
+mkdir -p "$TOOLS"
+COPY="$INSTALLED.macpad-tmp.$$"
+/bin/rm -f "$COPY"
+if ! /bin/cp "$HELPER" "$COPY"; then
+  /bin/rm -f "$COPY"
+  echo "MacPad++: could not install the helper in $TOOLS; administrator saves will use the password prompt" >&2
+  exit 0
+fi
+/bin/chmod 544 "$COPY"
+if [ "$(id -u)" = "0" ]; then /usr/sbin/chown root:wheel "$COPY"; fi
+/bin/mv -f "$COPY" "$INSTALLED"
+
+# XML-escape the path for the plist (the folder could in principle contain & < >).
+ESCAPED=$(printf '%s' "$INSTALLED" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')
 
 mkdir -p "$DAEMONS"
 TMP="$PLIST.macpad-tmp.$$"
@@ -90,6 +106,13 @@ cat > "$TMP" <<PLIST_END
 	<array>
 		<string>app.macpad.MacPad</string>
 	</array>
+	<key>SpawnConstraint</key>
+	<dict>
+		<key>team-identifier</key>
+		<string>96Y4LX7FVB</string>
+		<key>signing-identifier</key>
+		<string>$LABEL</string>
+	</dict>
 </dict>
 </plist>
 PLIST_END

@@ -126,11 +126,14 @@ encoding/EOL pickers, encoding detection, tail -f, reload on external change, Sa
 with Touch ID, window placement. MAC-25 (full security review incl. the GitHub code) is the stage's
 last item by the user's choice.
 
-Privileged helper (MAC-24/MAC-28): `MacPadHelper` is installed by the `.pkg` — `scripts/pkg/postinstall`
-writes `/Library/LaunchDaemons/app.macpad.MacPad.helper.plist` and bootstraps it (no SMAppService, no
-Login Items step). The app pings it over XPC; Touch ID when it answers, the password prompt otherwise.
-Only team-96Y4LX7FVB-signed builds pass the code-signing requirements, so Debug builds always use the
-password path. Known gap, tracked in MAC-25: the user-presence check is in the app, not the helper.
+Privileged helper (MAC-24/MAC-28, hardened in MAC-55/MAC-56): `MacPadHelper` is installed by the `.pkg` —
+`scripts/pkg/postinstall` copies it to `/Library/PrivilegedHelperTools/app.macpad.MacPad.helper` (root:wheel
+0544), writes `/Library/LaunchDaemons/app.macpad.MacPad.helper.plist` (with a `SpawnConstraint` on team +
+identifier) and the authorization right `app.macpad.MacPad.save` (admin, never cached), then bootstraps it.
+The app sends an AuthorizationExternalForm with each save; the **helper** asks for the right (SecurityAgent,
+Touch ID or password, naming the path) before writing, and refuses startup/security files. Only
+Developer ID builds of team 96Y4LX7FVB pass the code-signing requirements, so Debug builds always use the
+password path. Tests run the pkg scripts with stub `launchctl`/`security` — never the real ones.
 
 Milestone 3: **done** (2026-10-14, release 0.1.10) — Notepad++'s Boost regex engine (MAC-29),
 Find/Replace dialog (MAC-30), Mark + token styles + bookmarks (MAC-31), Search results panel with

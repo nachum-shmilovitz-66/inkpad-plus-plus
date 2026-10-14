@@ -178,6 +178,8 @@ final class PkgScriptTests: XCTestCase {
     }
 
     private var securityStub: URL { root.appendingPathComponent("security") }
+    private var tools: URL { root.appendingPathComponent("PrivilegedHelperTools") }
+    private var installedHelper: URL { tools.appendingPathComponent(label) }
     private var securityLog: URL { root.appendingPathComponent("security.log") }
     private var securityInput: URL { root.appendingPathComponent("security.in") }
 
@@ -190,7 +192,7 @@ final class PkgScriptTests: XCTestCase {
         p.arguments = [scripts.appendingPathComponent(script).path] + args
         p.environment = ["MACPAD_LAUNCHD_DIR": daemons.path, "MACPAD_LAUNCHCTL": launchctlStub.path,
                          "MACPAD_BIN_DIR": root.appendingPathComponent("bin").path, "MACPAD_SECURITY": securityStub.path,
-                         "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
+                         "MACPAD_HELPER_TOOLS_DIR": tools.path, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
         p.standardError = Pipe()
         try p.run()
         p.waitUntilExit()
@@ -209,7 +211,13 @@ final class PkgScriptTests: XCTestCase {
         let data = try Data(contentsOf: plist)
         let dict = try XCTUnwrap(try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
         XCTAssertEqual(dict["Label"] as? String, label)
-        XCTAssertEqual(dict["Program"] as? String, target.appendingPathComponent("MacPad++.app/Contents/MacOS/MacPadHelper").path)
+        // MAC-56: a root-owned copy outside /Applications, constrained to the team's signed helper.
+        XCTAssertEqual(dict["Program"] as? String, installedHelper.path)
+        XCTAssertEqual(try Data(contentsOf: installedHelper), try Data(contentsOf: target.appendingPathComponent("MacPad++.app/Contents/MacOS/MacPadHelper")))
+        let helperMode = (try FileManager.default.attributesOfItem(atPath: installedHelper.path)[.posixPermissions] as! NSNumber).intValue
+        XCTAssertEqual(helperMode, 0o544, "nobody but root may change what launchd runs")
+        XCTAssertEqual(dict["SpawnConstraint"] as? [String: String],
+                       ["team-identifier": HelperIdentity.teamID, "signing-identifier": label])
         XCTAssertEqual((dict["MachServices"] as? [String: Bool])?[label], true)
         XCTAssertEqual(dict["AssociatedBundleIdentifiers"] as? [String], ["app.macpad.MacPad"])
         XCTAssertEqual(dict[HelperIdentity.machService] == nil, true)
@@ -218,6 +226,7 @@ final class PkgScriptTests: XCTestCase {
 
         XCTAssertEqual(calls(), ["bootout system/\(label)", "bootstrap system \(plist.path)"], "old one stopped, new one started")
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: daemons.path), ["\(label).plist"], "no temp file left")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: tools.path), [label], "no temp copy left")
     }
 
     /// MAC-55: the right the helper asks for — an administrator, every time.
@@ -240,7 +249,9 @@ final class PkgScriptTests: XCTestCase {
 
     func testReinstallingReplacesTheDaemonCleanly() throws {
         try run("postinstall", args: ["p", target.path, "/"])
+        try Data("#!/bin/sh\n# v2\n".utf8).write(to: target.appendingPathComponent("MacPad++.app/Contents/MacOS/MacPadHelper"))
         try run("postinstall", args: ["p", target.path, "/"])
+        XCTAssertEqual(try String(contentsOf: installedHelper, encoding: .utf8), "#!/bin/sh\n# v2\n", "the new helper replaces the old copy")
         XCTAssertEqual(calls().filter { $0.hasPrefix("bootstrap") }.count, 2)
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: daemons.path), ["\(label).plist"])
     }

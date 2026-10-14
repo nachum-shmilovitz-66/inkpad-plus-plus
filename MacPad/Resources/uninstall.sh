@@ -7,7 +7,7 @@
 # Your own settings (~/Library/Application Support/MacPad++) are not touched here.
 # Argument: the app to remove (default /Applications/MacPad++.app); it must be a MacPad++.app.
 # Test overrides (never set otherwise): MACPAD_LAUNCHD_DIR, MACPAD_LAUNCHCTL, MACPAD_BIN_DIR, MACPAD_PKGUTIL,
-# MACPAD_SECURITY.
+# MACPAD_SECURITY, MACPAD_HELPER_TOOLS_DIR.
 set -u
 
 LABEL="app.macpad.MacPad.helper"
@@ -17,6 +17,7 @@ LAUNCHCTL="${MACPAD_LAUNCHCTL:-/bin/launchctl}"
 BIN="${MACPAD_BIN_DIR:-/usr/local/bin}"
 PKGUTIL="${MACPAD_PKGUTIL:-/usr/sbin/pkgutil}"
 SECURITY="${MACPAD_SECURITY:-/usr/bin/security}"
+TOOLS="${MACPAD_HELPER_TOOLS_DIR:-/Library/PrivilegedHelperTools}"
 
 case "$APP" in
   */MacPad++.app) ;;
@@ -28,7 +29,7 @@ if [ -d "$APP" ] && [ ! -f "$APP/Contents/Info.plist" ]; then
 fi
 
 "$LAUNCHCTL" bootout "system/$LABEL" >/dev/null 2>&1 || true
-/bin/rm -f "$DAEMONS/$LABEL.plist"
+/bin/rm -f "$DAEMONS/$LABEL.plist" "$TOOLS/$LABEL"
 "$SECURITY" authorizationdb remove app.macpad.MacPad.save >/dev/null 2>&1 || true
 
 if [ -L "$BIN/macpad" ] && /usr/bin/readlink "$BIN/macpad" | /usr/bin/grep -q 'MacPad++\.app/Contents/MacOS/macpad$'; then

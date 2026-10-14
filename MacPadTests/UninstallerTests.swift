@@ -9,6 +9,7 @@ final class UninstallerTests: XCTestCase {
     private var daemons: URL { root.appendingPathComponent("LaunchDaemons") }
     private var bin: URL { root.appendingPathComponent("bin") }
     private var log: URL { root.appendingPathComponent("calls.log") }
+    private var tools: URL { root.appendingPathComponent("PrivilegedHelperTools") }
     private let label = "app.macpad.MacPad.helper"
 
     private var script: URL {
@@ -25,6 +26,9 @@ final class UninstallerTests: XCTestCase {
         try fm.createDirectory(at: daemons, withIntermediateDirectories: true)
         try Data("<plist/>".utf8).write(to: daemons.appendingPathComponent("\(label).plist"))
         try Data("other".utf8).write(to: daemons.appendingPathComponent("com.example.other.plist"))
+        try fm.createDirectory(at: tools, withIntermediateDirectories: true)
+        try Data("helper".utf8).write(to: tools.appendingPathComponent(label))
+        try Data("other".utf8).write(to: tools.appendingPathComponent("com.example.other"))
         try fm.createDirectory(at: bin, withIntermediateDirectories: true)
         try fm.createSymbolicLink(atPath: bin.appendingPathComponent("macpad").path,
                                   withDestinationPath: app.appendingPathComponent("Contents/MacOS/macpad").path)
@@ -45,6 +49,7 @@ final class UninstallerTests: XCTestCase {
         p.environment = ["MACPAD_LAUNCHD_DIR": daemons.path, "MACPAD_LAUNCHCTL": root.appendingPathComponent("launchctl").path,
                          "MACPAD_BIN_DIR": bin.path, "MACPAD_PKGUTIL": root.appendingPathComponent("pkgutil").path,
                          "MACPAD_SECURITY": root.appendingPathComponent("security").path,
+                         "MACPAD_HELPER_TOOLS_DIR": tools.path,
                          "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
         p.standardOutput = Pipe()
         p.standardError = Pipe()
@@ -66,6 +71,8 @@ final class UninstallerTests: XCTestCase {
         XCTAssertFalse(exists(app))
         XCTAssertFalse(exists(daemons.appendingPathComponent("\(label).plist")))
         XCTAssertTrue(exists(daemons.appendingPathComponent("com.example.other.plist")), "other daemons stay")
+        XCTAssertFalse(exists(tools.appendingPathComponent(label)), "the helper copy goes (MAC-56)")
+        XCTAssertTrue(exists(tools.appendingPathComponent("com.example.other")))
         XCTAssertFalse(exists(bin.appendingPathComponent("macpad")))
         XCTAssertEqual(calls(), ["launchctl bootout system/\(label)", "security authorizationdb remove app.macpad.MacPad.save",
                                  "pkgutil --forget app.macpad.MacPad"], "the save right (MAC-55) goes too")
