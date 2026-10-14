@@ -7,3 +7,6 @@
 #import "Lexilla.h"
 #import "uchardet.h"
 #import "BoostRegexSearch.h"
+
+// scripts/deps/BoostRegexLocale.cxx: the last Boost regex error message.
+const char *MacPadRegexErrorMessage(void);

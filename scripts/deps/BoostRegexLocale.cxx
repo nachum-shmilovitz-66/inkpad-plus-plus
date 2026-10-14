@@ -23,3 +23,9 @@ struct UnicodeWideCtype {
 };
 const UnicodeWideCtype installUnicodeWideCtype;
 }  // namespace
+
+// The message of the last regex error (BoostRegexSearch's g_exceptionMessage), for Swift: the
+// Find dialog's tooltip and diagnostics.
+#include <string>
+extern std::string g_exceptionMessage;
+extern "C" const char* MacPadRegexErrorMessage() { return g_exceptionMessage.c_str(); }

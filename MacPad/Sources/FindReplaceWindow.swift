@@ -173,7 +173,7 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
         case .notFound:
             report(SearchMessages.cantFind(text, scope: findScope(opts)), hint: SearchMessages.hint(for: opts))
         case .invalidRegex:
-            report(SearchMessages.invalidRegex)
+            report(SearchMessages.invalidRegex, hint: Self.regexErrorDetail)
         }
     }
 
@@ -186,7 +186,7 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
                                                     stopAfterReplacing: Preferences.current.replaceStopsWithoutFindingNext) {
         case .replacedOnly: report(SearchMessages.replacedOnly)
         case .readOnly: report(SearchMessages.replaceReadOnly)
-        case .invalidRegex: report(SearchMessages.invalidRegex)
+        case .invalidRegex: report(SearchMessages.invalidRegex, hint: Self.regexErrorDetail)
         case .notFound: report(SearchMessages.replaceNotFound(scope: findScope(options)), hint: SearchMessages.hint(for: options))
         case .foundOnly: report(nil)
         case .replaced(let next):
@@ -195,7 +195,7 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
                 report(options.effectiveBackward ? SearchMessages.replaceTopReached : SearchMessages.replaceEndReached)
             case .found: report(SearchMessages.replacedNextFound)
             case .notFound: report(SearchMessages.replacedNoMore)
-            case .invalidRegex: report(SearchMessages.invalidRegex)
+            case .invalidRegex: report(SearchMessages.invalidRegex, hint: Self.regexErrorDetail)
             }
         }
     }
@@ -207,7 +207,7 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
         remember(find: text, replace: replacement)
         switch SearchEngine(editor: editor).replaceAll(text, with: replacement, options: options) {
         case .readOnly: report(SearchMessages.replaceAllReadOnly)
-        case .invalidRegex: report(SearchMessages.invalidRegex)
+        case .invalidRegex: report(SearchMessages.invalidRegex, hint: Self.regexErrorDetail)
         case .done(let n, let scope): report(SearchMessages.replacedAll(n, scope: scope))
         }
         updateSelectionDependentControls(autoCheck: false)
@@ -219,7 +219,7 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
         guard !text.isEmpty else { return }
         remember(find: text)
         switch SearchEngine(editor: editor).count(text, options: options) {
-        case .invalidRegex: report(SearchMessages.invalidRegex)
+        case .invalidRegex: report(SearchMessages.invalidRegex, hint: Self.regexErrorDetail)
         case .readOnly: break
         case .done(let n, let scope):
             report(SearchMessages.count(n, scope: scope), hint: n == 0 ? SearchMessages.hint(for: options) : nil)
@@ -242,7 +242,7 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
         for document in documents {
             switch SearchEngine(editor: document.editor).findAll(text, options: opts, path: document.path) {
             case .invalidRegex:
-                report(SearchMessages.invalidRegex)
+                report(SearchMessages.invalidRegex, hint: Self.regexErrorDetail)
                 return
             case .found(let hits) where !hits.isEmpty:
                 let count = hits.reduce(0) { $0 + $1.ranges.count }
@@ -278,7 +278,7 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
         for document in documentsProvider().all where document.editor.send(SCI_GETREADONLY) == 0 {
             switch SearchEngine(editor: document.editor).replaceAll(text, with: replacement, options: opts) {
             case .invalidRegex:
-                report(SearchMessages.invalidRegex)
+                report(SearchMessages.invalidRegex, hint: Self.regexErrorDetail)
                 return
             case .done(let n, _): total += n
             case .readOnly: break
@@ -426,7 +426,7 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
     private func finish(_ outcome: FindInFilesJob.Outcome) {
         switch outcome {
         case .invalidRegex:
-            report(SearchMessages.invalidRegex)
+            report(SearchMessages.invalidRegex, hint: Self.regexErrorDetail)
         case .found(let block):
             report(nil)
             resultsSink(block)
@@ -462,7 +462,7 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
         guard !text.isEmpty else { return }
         remember(find: text)
         switch Marker(editor: editor).markAll(text, options: options, bookmarkLine: options.bookmarkLine, purge: options.purge) {
-        case .invalidRegex: report(SearchMessages.invalidRegex)
+        case .invalidRegex: report(SearchMessages.invalidRegex, hint: Self.regexErrorDetail)
         case .readOnly: break
         case .done(let n, let scope):
             report(SearchMessages.marked(n, scope: scope), hint: n == 0 ? SearchMessages.hint(for: options) : nil)
@@ -507,6 +507,12 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
     }
 
     // MARK: - State
+
+    /// Boost's own explanation of the last invalid regex, as Notepad++ shows it in a tooltip.
+    static var regexErrorDetail: String? {
+        let message = String(cString: MacPadRegexErrorMessage())
+        return message.isEmpty ? nil : message
+    }
 
     private func findScope(_ opts: SearchOptions) -> SearchScope {
         opts.wrapAround ? .entireFile : (opts.effectiveBackward ? .startToCaret : .caretToEnd)

@@ -194,7 +194,7 @@ struct SearchEngine {
         guard !pattern.isEmpty else { return .notFound }
         editor.send(SCI_SETSEARCHFLAGS, flags)
         editor.send(SCI_SETTARGETRANGE, from, to)
-        let position = pattern.withUnsafeBytes { editor.send(SCI_SEARCHINTARGET, pattern.count, pointer: $0.baseAddress) }
+        let position = editor.searchInTarget(pattern)
         if position == -2 { return .invalidRegex }
         guard position >= 0 else { return .notFound }
         return .found(Match(start: position, end: editor.send(SCI_GETTARGETEND)), wrapped: false)
@@ -203,9 +203,7 @@ struct SearchEngine {
     /// Replaces the target: Boost's format string in Regex mode, the converted text in Extended
     /// mode, the literal text otherwise. Returns the inserted length.
     private func replaceTarget(with replacement: String, options: SearchOptions) -> Int {
-        let text = bytes(options.prepared(replacement))
-        let message = options.mode == .regex ? SCI_REPLACETARGETRE : SCI_REPLACETARGET
-        return text.withUnsafeBytes { editor.send(message, text.count, pointer: $0.baseAddress ?? UnsafeRawPointer(bitPattern: 1)) }
+        editor.replaceTarget(bytes(options.prepared(replacement)), regex: options.mode == .regex)
     }
 
     /// Searching::displaySectionCentered: unfold, scroll into view, select with the caret at the end.

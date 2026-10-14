@@ -17,6 +17,23 @@ extension ScintillaView {
         send(message, wParam, Int(bitPattern: pointer))
     }
 
+    /// SCI_SEARCHINTARGET. The bytes are passed NUL-terminated: Notepad++'s Boost regex engine reads
+    /// the pattern as a C string and ignores the length, so an unterminated buffer let it read past
+    /// the pattern into whatever followed (results changed from run to run).
+    @discardableResult
+    func searchInTarget(_ pattern: [UInt8]) -> Int {
+        let terminated = pattern + [0]
+        return terminated.withUnsafeBytes { send(SCI_SEARCHINTARGET, pattern.count, pointer: $0.baseAddress) }
+    }
+
+    /// SCI_REPLACETARGET, or SCI_REPLACETARGETRE (Boost's format string, also read as a C string);
+    /// returns the length inserted.
+    @discardableResult
+    func replaceTarget(_ text: [UInt8], regex: Bool = false) -> Int {
+        let terminated = text + [0]
+        return terminated.withUnsafeBytes { send(regex ? SCI_REPLACETARGETRE : SCI_REPLACETARGET, text.count, pointer: $0.baseAddress) }
+    }
+
     /// Replaces the whole document with UTF-8 bytes. Byte-exact: NULs and invalid sequences survive.
     func setUTF8Bytes(_ data: Data) {
         send(SCI_CLEARALL)

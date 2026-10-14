@@ -45,7 +45,7 @@ struct LineOperations {
     private func replace(_ range: Range<Int>, with text: String) {
         let bytes = Array(text.utf8)
         editor.send(SCI_SETTARGETRANGE, range.lowerBound, range.upperBound)
-        bytes.withUnsafeBytes { editor.send(SCI_REPLACETARGET, bytes.count, pointer: $0.baseAddress ?? UnsafeRawPointer(bitPattern: 1)) }
+        editor.replaceTarget(bytes)
     }
 
     private func undoGroup<T>(_ body: () throws -> T) rethrows -> T {
@@ -64,11 +64,11 @@ struct LineOperations {
         editor.send(SCI_SETSEARCHFLAGS, Int(SCFIND_REGEXP | SCFIND_POSIX))
         while start <= end {
             editor.send(SCI_SETTARGETRANGE, start, end)
-            let found = bytes.withUnsafeBytes { editor.send(SCI_SEARCHINTARGET, bytes.count, pointer: $0.baseAddress) }
+            let found = editor.searchInTarget(bytes)
             guard found >= 0 else { break }
             let matchEnd = editor.send(SCI_GETTARGETEND)
             if matchEnd == found { start = found + 1; continue }  // never loop on an empty match
-            editor.send(SCI_REPLACETARGET, 0, pointer: UnsafeRawPointer(bitPattern: 1))
+            editor.replaceTarget([])
             end -= matchEnd - found
             start = found
             changed = true
@@ -207,7 +207,7 @@ struct LineOperations {
                 let bytes = Array(pattern.utf8)
                 editor.send(SCI_SETSEARCHFLAGS, Int(SCFIND_REGEXP | SCFIND_POSIX))
                 editor.send(SCI_SETTARGETRANGE, from, length)
-                let found = bytes.withUnsafeBytes { editor.send(SCI_SEARCHINTARGET, bytes.count, pointer: $0.baseAddress) }
+                let found = editor.searchInTarget(bytes)
                 if found >= 0 { editor.send(SCI_DELETERANGE, found, length - found) }
                 end = length
             }

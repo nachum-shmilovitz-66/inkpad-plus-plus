@@ -87,4 +87,22 @@ final class BoostRegexTests: XCTestCase {
         XCTAssertThrowsError(try find("(unclosed", in: editor("text")))
         XCTAssertThrowsError(try find("a{2,1}", in: editor("aa")))
     }
+
+    /// Regression (2026-10-14): patterns went to Boost unterminated, so it read past them; results
+    /// changed between runs. The pattern must end where its bytes end.
+    func testThePatternEndsWithItsBytes() {
+        let v = editor("(a)")
+        v.send(SCI_SETSEARCHFLAGS, Int(SCFIND_REGEXP))
+        v.send(SCI_SETTARGETRANGE, 0, v.send(SCI_GETLENGTH))
+        let pattern = Array("(a)".utf8)
+        XCTAssertEqual(v.searchInTarget(Array(pattern.prefix(2))), -2, "\"(a\" alone is not a valid regex")
+        v.send(SCI_SETTARGETRANGE, 0, v.send(SCI_GETLENGTH))
+        XCTAssertEqual(v.searchInTarget(pattern), 1)
+        let target = editor("abc")
+        target.send(SCI_SETTARGETRANGE, 1, 2)
+        target.send(SCI_SETSEARCHFLAGS, Int(SCFIND_REGEXP))
+        target.send(SCI_SEARCHINTARGET, 1, string: "b")
+        XCTAssertEqual(target.replaceTarget(Array("[$0]".utf8), regex: true), 3)
+        XCTAssertEqual(String(decoding: target.utf8Bytes(), as: UTF8.self), "a[b]c")
+    }
 }

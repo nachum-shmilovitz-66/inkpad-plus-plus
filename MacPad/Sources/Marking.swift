@@ -242,7 +242,7 @@ struct Marker {
         editor.send(SCI_BEGINUNDOACTION)
         for line in lines.reversed() {
             editor.send(SCI_SETTARGETRANGE, editor.send(SCI_POSITIONFROMLINE, line), editor.send(SCI_GETLINEENDPOSITION, line))
-            bytes.withUnsafeBytes { editor.send(SCI_REPLACETARGET, bytes.count, pointer: $0.baseAddress ?? UnsafeRawPointer(bitPattern: 1)) }
+            editor.replaceTarget(bytes)
         }
         editor.send(SCI_ENDUNDOACTION)
     }

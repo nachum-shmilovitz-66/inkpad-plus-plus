@@ -443,4 +443,14 @@ final class FindReplaceControllerTests: XCTestCase {
         c.useSelectionForFind()
         XCTAssertEqual(c.findField.stringValue, "bar")
     }
+
+    func testAnInvalidRegexExplainsItself() {
+        let c = FindReplaceController(defaults: UserDefaults(suiteName: "app.macpad.MacPad.tests.regexerror")!) { makeEditor("abc") }
+        c.regexRadio.performClick(nil)
+        c.findField.stringValue = "a(b"
+        c.findNext()
+        XCTAssertEqual(c.status, SearchMessages.invalidRegex)
+        XCTAssertNotNil(c.statusLabel.toolTip, "Boost's reason, as Notepad++'s tooltip")
+        XCTAssertTrue(c.statusLabel.toolTip?.lowercased().contains("parenthes") == true, c.statusLabel.toolTip ?? "")
+    }
 }

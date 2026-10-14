@@ -90,7 +90,7 @@ struct EditCommands {
     private func replace(_ range: Range<Int>, with text: String) {
         let bytes = Array(text.utf8)
         editor.send(SCI_SETTARGETRANGE, range.lowerBound, range.upperBound)
-        bytes.withUnsafeBytes { editor.send(SCI_REPLACETARGET, bytes.count, pointer: $0.baseAddress ?? UnsafeRawPointer(bitPattern: 1)) }
+        editor.replaceTarget(bytes)
     }
 
     private func insert(_ text: String, at position: Int) { editor.send(SCI_INSERTTEXT, position, string: text) }

@@ -135,7 +135,7 @@ enum ColumnEditor {
             }
             let bytes = Array(strings[n].utf8)
             editor.send(SCI_SETTARGETRANGE, left, right)
-            bytes.withUnsafeBytes { editor.send(SCI_REPLACETARGET, bytes.count, pointer: $0.baseAddress ?? UnsafeRawPointer(bitPattern: 1)) }
+            editor.replaceTarget(bytes)
             offset += bytes.count - (right - left)
             results.append((piece.index, left, left + bytes.count, piece.caretFirst))
         }
