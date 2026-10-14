@@ -24,7 +24,7 @@ struct FunctionParserDefinition {
 
     /// Parses a functionList XML; only its first <parser>, as Notepad++.
     init?(xml data: Data) {
-        guard let doc = try? XMLDocument(data: Self.keepingAttributeNewlines(data), options: []),
+        guard let doc = try? SafeXML.document(data: Self.keepingAttributeNewlines(data)),
               let parser = (try? doc.nodes(forXPath: "/NotepadPlus/functionList/parser"))?.first as? XMLElement,
               let id = parser.attribute(forName: "id")?.stringValue else { return nil }
         func attr(_ e: XMLElement?, _ name: String) -> String? {

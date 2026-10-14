@@ -47,15 +47,22 @@ final class StyleTheme {
     private(set) var lexerDescriptions: [String: String] = [:]
 
     init(url: URL?) {
-        guard let url, let doc = try? XMLDocument(contentsOf: url, options: []) else {
-            NSLog("MacPad++: could not load theme \(url?.path ?? "nil")")
+        guard let url, let doc = try? SafeXML.document(contentsOf: url) else {
+            NSLog("MacPad++: could not load theme \(url?.lastPathComponent ?? "nil")")
             return
         }
         parse(doc)
+        isLoaded = true
     }
 
     /// A theme being edited in the Style Configurator, read from its live XML.
-    init(document: XMLDocument) { parse(document) }
+    init(document: XMLDocument) {
+        parse(document)
+        isLoaded = true
+    }
+
+    /// Read and parsed (MAC-60: a refused or broken file gives an empty theme, never remembered).
+    private(set) var isLoaded = false
 
     private func parse(_ doc: XMLDocument) {
         let globals = (try? doc.nodes(forXPath: "/NotepadPlus/GlobalStyles/WidgetStyle")) as? [XMLElement] ?? []

@@ -35,7 +35,7 @@ final class LanguageCatalog {
 
     init(url: URL?) {
         let infos = Dictionary(languageTable.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
-        guard let url, let doc = try? XMLDocument(contentsOf: url, options: []),
+        guard let url, let doc = try? SafeXML.document(contentsOf: url),
               let nodes = try? doc.nodes(forXPath: "/NotepadPlus/Languages/Language") as? [XMLElement]
         else {
             NSLog("MacPad++: could not load langs.model.xml")

@@ -82,6 +82,8 @@ final class ThemeManager {
     }
 
     func select(_ name: String) {
+        // MAC-60: a theme that cannot be read is never remembered, so it cannot break the next launch.
+        guard theme(named: name).isLoaded else { return }
         let changed = name != selectedName
         defaults.set(name, forKey: Self.selectionKey)
         if changed { NotificationCenter.default.post(name: Self.didChange, object: self) }

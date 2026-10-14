@@ -14,11 +14,11 @@ final class StyleDocument {
     }
 
     init(url: URL) throws {
-        document = try XMLDocument(contentsOf: url, options: [.nodePreserveWhitespace])
+        document = try SafeXML.document(contentsOf: url, options: [.nodePreserveWhitespace])
     }
 
     init(data: Data) throws {
-        document = try XMLDocument(data: data, options: [.nodePreserveWhitespace])
+        document = try SafeXML.document(data: data, options: [.nodePreserveWhitespace])
     }
 
     var theme: StyleTheme { StyleTheme(document: document) }
