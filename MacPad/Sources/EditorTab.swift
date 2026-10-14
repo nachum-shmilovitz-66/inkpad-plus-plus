@@ -173,7 +173,10 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         if let eol = loaded.lineEnding { editor.send(SCI_SETEOLMODE, eol.rawValue) }
         editor.send(SCI_EMPTYUNDOBUFFER)
         editor.send(SCI_SETSAVEPOINT)
-        editor.send(SCI_GOTOPOS, 0)
+        // MAC-49: not SCI_GOTOPOS. A tab is loaded before it is laid out, when Scintilla sees no
+        // line on screen and scrolls the caret's line out of the top to "show" it.
+        editor.send(SCI_SETEMPTYSELECTION, 0)
+        editor.send(SCI_SETFIRSTVISIBLELINE, 0)
         fileURL = url
         format = FileFormat(encoding: loaded.encoding)
         isMissingOnDisk = false
