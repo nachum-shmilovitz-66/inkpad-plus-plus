@@ -80,6 +80,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         tabBar.onSelect = { [weak self] index in self?.selectTab(at: index) }
         tabBar.onClose = { [weak self] index in self?.closeTab(at: index) }
         statusBar.onEncodingClick = { [weak self] label in self?.showEncodingMenu(at: label) }
+        statusBar.onLanguageClick = { [weak self] label in self?.showLanguageMenu(at: label) }
         statusBar.onLineEndingClick = { [weak self] label in self?.showLineEndingMenu(at: label) }
     }
 
@@ -137,7 +138,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                 caretPosition: tab.caretPosition,
                 firstVisibleLine: tab.firstVisibleLine,
                 isMonitoring: tab.isMonitoring,
-                bookmarks: tab.bookmarks))
+                bookmarks: tab.bookmarks,
+                language: tab.language.name))
         }
         return SessionState(documents: documents, activeIndex: active)
     }
@@ -162,6 +164,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             }
             add(tab)
             tab.bookmarks = document.bookmarks
+            if let name = document.language, let info = LanguageCatalog.shared.language(named: name) { tab.setLanguage(info) }
             if document.isMonitoring {
                 try? tab.startMonitoring()  // positions at the end, as monitoring does
             } else {
@@ -353,6 +356,23 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     @IBAction func zoomOutText(_ sender: Any?) { activeTab?.editor.send(SCI_ZOOMOUT) }
     @IBAction func restoreTextZoom(_ sender: Any?) { activeTab?.editor.send(SCI_SETZOOM, 0) }
 
+    // MARK: - Language menu (MAC-35)
+
+    /// Language › <language>: the tab is re-lexed and keeps that language in the session.
+    @IBAction func selectLanguage(_ sender: Any?) {
+        guard let name = (sender as? NSMenuItem)?.representedObject as? String,
+              let info = LanguageCatalog.shared.language(named: name), let tab = activeTab else { return }
+        tab.setLanguage(info)
+        refresh()
+        persistSession()
+    }
+
+    /// A click on the status bar's language opens the same menu there.
+    private func showLanguageMenu(at label: NSView) {
+        let menu = MainMenu.languageMenu()
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: label.bounds.height + 4), in: label)
+    }
+
     // MARK: - Incremental search (MAC-34)
 
     @IBAction func showIncrementalSearch(_ sender: Any?) {
@@ -499,6 +519,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             item.state = editor.send(SCI_GETVIEWWS) != Int(SCWS_INVISIBLE) ? .on : .off
         case #selector(selectNextTab(_:)), #selector(selectPreviousTab(_:)):
             return tabs.count > 1
+        case #selector(selectLanguage(_:)):
+            item.state = (item.representedObject as? String) == activeTab?.language.name ? .on : .off
         case #selector(toggleMonitoring(_:)):
             item.state = activeTab?.isMonitoring == true ? .on : .off
             return activeTab?.fileURL != nil

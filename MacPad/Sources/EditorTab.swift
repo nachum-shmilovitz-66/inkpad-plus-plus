@@ -486,6 +486,13 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
             overtype: editor.send(SCI_GETOVERTYPE) != 0)
     }
 
+    /// Language menu: re-lexes the document with `info`, whatever its extension says.
+    func setLanguage(_ info: LanguageInfo) {
+        guard info.name != language.name else { return }
+        applyLanguage(info)
+        onChange?()
+    }
+
     private func applyLanguage(_ info: LanguageInfo) {
         language = info
         EditorStyler.apply(language: info, theme: StyleTheme.default, to: editor)

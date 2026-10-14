@@ -2,7 +2,7 @@ import AppKit
 
 /// Notepad++'s status bar: language · length/lines · Ln/Col/Pos · EOL · encoding · INS/OVR.
 final class StatusBar: NSView {
-    private let language = StatusBar.label(alignment: .left)
+    private let language = StatusBar.clickableLabel(tip: "Click to change the language", alignment: .left)
     private let size = StatusBar.label()
     private let caret = StatusBar.label()
     private let lineEnding = StatusBar.clickableLabel(tip: "Click to convert the line endings")
@@ -13,6 +13,10 @@ final class StatusBar: NSView {
     var onLineEndingClick: ((NSView) -> Void)? {
         get { lineEnding.onClick }
         set { lineEnding.onClick = newValue }
+    }
+    var onLanguageClick: ((NSView) -> Void)? {
+        get { language.onClick }
+        set { language.onClick = newValue }
     }
     var onEncodingClick: ((NSView) -> Void)? {
         get { encoding.onClick }
@@ -68,11 +72,11 @@ final class StatusBar: NSView {
         return field
     }
 
-    private static func clickableLabel(tip: String) -> ClickableLabel {
+    private static func clickableLabel(tip: String, alignment: NSTextAlignment = .right) -> ClickableLabel {
         let field = ClickableLabel(labelWithString: "")
         field.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         field.textColor = .secondaryLabelColor
-        field.alignment = .right
+        field.alignment = alignment
         field.lineBreakMode = .byTruncatingTail
         field.toolTip = tip
         return field

@@ -12,17 +12,20 @@ struct SessionState: Codable, Equatable {
         var isMonitoring: Bool
         /// Bookmarked lines, 0-based (Notepad++'s <Mark line="N"/>).
         var bookmarks: [Int]
+        /// The language chosen for the tab (Notepad++'s lang="…"); nil in older sessions.
+        var language: String?
 
         init(path: String, caretPosition: Int = 0, firstVisibleLine: Int = 0, isMonitoring: Bool = false,
-             bookmarks: [Int] = []) {
+             bookmarks: [Int] = [], language: String? = nil) {
             self.path = path
             self.caretPosition = caretPosition
             self.firstVisibleLine = firstVisibleLine
             self.isMonitoring = isMonitoring
             self.bookmarks = bookmarks
+            self.language = language
         }
 
-        private enum CodingKeys: String, CodingKey { case path, caretPosition, firstVisibleLine, isMonitoring, bookmarks }
+        private enum CodingKeys: String, CodingKey { case path, caretPosition, firstVisibleLine, isMonitoring, bookmarks, language }
 
         /// Sessions written before monitoring or bookmarks existed lack those keys: read them as
         /// off / none, rather than discarding the whole session.
@@ -33,6 +36,7 @@ struct SessionState: Codable, Equatable {
             firstVisibleLine = try c.decode(Int.self, forKey: .firstVisibleLine)
             isMonitoring = try c.decodeIfPresent(Bool.self, forKey: .isMonitoring) ?? false
             bookmarks = try c.decodeIfPresent([Int].self, forKey: .bookmarks) ?? []
+            language = try c.decodeIfPresent(String.self, forKey: .language)
         }
     }
 

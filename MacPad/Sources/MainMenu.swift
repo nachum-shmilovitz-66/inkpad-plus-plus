@@ -10,6 +10,7 @@ enum MainMenu {
         main.addItem(submenu(editMenu()))
         main.addItem(submenu(searchMenu()))
         main.addItem(submenu(viewMenu()))
+        main.addItem(submenu(languageMenu()))
         let window = windowMenu()
         main.addItem(submenu(window))
         NSApp.windowsMenu = window
@@ -151,6 +152,29 @@ enum MainMenu {
         menu.addItem(item("Remove Bookmarked Lines", #selector(MainWindowController.removeBookmarkedLines(_:))))
         menu.addItem(item("Remove Non-Bookmarked Lines", #selector(MainWindowController.removeUnbookmarkedLines(_:))))
         menu.addItem(item("Inverse Bookmark", #selector(MainWindowController.inverseBookmarks(_:))))
+        return menu
+    }
+
+    /// Notepad++'s compact Language menu (letter submenus), generated from Notepad_plus.rc.
+    static func languageMenu() -> NSMenu {
+        let menu = NSMenu(title: "Language")
+        func entry(_ title: String, _ language: String) -> NSMenuItem {
+            let item = NSMenuItem(title: title, action: #selector(MainWindowController.selectLanguage(_:)), keyEquivalent: "")
+            item.representedObject = language
+            return item
+        }
+        for e in languageMenuEntries {
+            switch e {
+            case .item(let title, let language): menu.addItem(entry(title, language))
+            case .separator: menu.addItem(.separator())
+            case .submenu(let title, let items):
+                let sub = NSMenu(title: title)
+                items.forEach { sub.addItem(entry($0.title, $0.language)) }
+                let parent = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+                parent.submenu = sub
+                menu.addItem(parent)
+            }
+        }
         return menu
     }
 

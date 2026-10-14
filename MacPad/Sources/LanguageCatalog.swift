@@ -56,6 +56,11 @@ final class LanguageCatalog {
         }
     }
 
+    /// A language by its langs.model.xml name ("cpp", "python"…), as menus and sessions name it.
+    func language(named name: String) -> LanguageInfo? {
+        languages[name]?.info ?? languageTable.first { $0.name == name }
+    }
+
     /// Language for a file, following Notepad++'s getLangFromExt: special file names first,
     /// then the extension list from langs.model.xml.
     func language(for url: URL?) -> LanguageInfo {
