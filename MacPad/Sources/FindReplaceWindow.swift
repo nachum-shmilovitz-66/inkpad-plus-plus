@@ -287,6 +287,46 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
         report(SearchMessages.replacedInOpenedFiles(total))
     }
 
+    // MARK: - Macros (MAC-42)
+
+    /// A dialog operation while a macro records: the dialog's text, options and folder, then the button.
+    private func recordSearch(_ operation: SearchMacroStep.Operation) {
+        MacroRecorder.shared.record(currentSearchStep(operation))
+    }
+
+    func currentSearchStep(_ operation: SearchMacroStep.Operation) -> SearchMacroStep {
+        SearchMacroStep(operation: operation, findText: findField.stringValue, replaceText: replaceField.stringValue,
+                        options: options, directory: directoryField.stringValue, filters: filtersField.stringValue)
+    }
+
+    /// Playback of a recorded dialog operation: the dialog's own state is put back afterwards.
+    func perform(_ step: SearchMacroStep) {
+        let saved = (findField.stringValue, replaceField.stringValue, options, directoryField.stringValue, filtersField.stringValue)
+        findField.stringValue = step.findText
+        replaceField.stringValue = step.replaceText
+        options = step.options
+        directoryField.stringValue = step.directory
+        filtersField.stringValue = step.filters
+        let synchronous = runsFindInFilesSynchronously
+        runsFindInFilesSynchronously = true  // a macro waits for its Find in Files
+        switch step.operation {
+        case .findNext: findNext()
+        case .findPrevious: findNext(reversed: true)
+        case .replace: replace()
+        case .replaceAll: replaceAll()
+        case .count: count()
+        case .markAll: markAll()
+        case .clearMarks: clearMarks()
+        case .findAllInCurrent: findAll(inOpenedDocuments: false)
+        case .findAllInOpened: findAll(inOpenedDocuments: true)
+        case .replaceAllInOpened: replaceAllInOpenedDocuments()
+        case .findInFiles: findInFiles(replacing: false)
+        case .replaceInFiles: findInFiles(replacing: true)
+        }
+        runsFindInFilesSynchronously = synchronous
+        (findField.stringValue, replaceField.stringValue, options, directoryField.stringValue, filtersField.stringValue) = saved
+    }
+
     // MARK: - Find in Files (MAC-33)
 
     /// The directory of the active document, when it has one ("<<").
@@ -398,8 +438,8 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
         }
     }
 
-    @objc private func findInFilesClicked(_ sender: Any?) { findInFiles(replacing: false) }
-    @objc private func replaceInFilesClicked(_ sender: Any?) { findInFiles(replacing: true) }
+    @objc private func findInFilesClicked(_ sender: Any?) { recordSearch(.findInFiles); findInFiles(replacing: false) }
+    @objc private func replaceInFilesClicked(_ sender: Any?) { recordSearch(.replaceInFiles); findInFiles(replacing: true) }
     @objc private func fillDirectoryClicked(_ sender: Any?) { fillDirectoryFromActiveDocument() }
 
     @objc private func browseClicked(_ sender: Any?) {
@@ -601,23 +641,35 @@ final class FindReplaceController: NSWindowController, NSWindowDelegate, NSCombo
     }
 
     @objc private func findNextClicked(_ sender: Any?) {
-        findNext(reversed: NSApp.currentEvent?.modifierFlags.contains(.shift) == true)
+        let reversed = NSApp.currentEvent?.modifierFlags.contains(.shift) == true
+        recordSearch(reversed ? .findPrevious : .findNext)
+        findNext(reversed: reversed)
     }
-    @objc private func countClicked(_ sender: Any?) { count() }
-    @objc private func replaceClicked(_ sender: Any?) { replace() }
-    @objc private func replaceAllClicked(_ sender: Any?) { replaceAll() }
-    @objc private func markAllClicked(_ sender: Any?) { markAll() }
-    @objc private func findAllCurrentClicked(_ sender: Any?) { findAll(inOpenedDocuments: false) }
-    @objc private func findAllOpenedClicked(_ sender: Any?) { findAll(inOpenedDocuments: true) }
-    @objc private func replaceAllOpenedClicked(_ sender: Any?) { replaceAllInOpenedDocuments() }
-    @objc private func clearMarksClicked(_ sender: Any?) { clearMarks() }
+    @objc private func countClicked(_ sender: Any?) { recordSearch(.count); count() }
+    @objc private func replaceClicked(_ sender: Any?) { recordSearch(.replace); replace() }
+    @objc private func replaceAllClicked(_ sender: Any?) { recordSearch(.replaceAll); replaceAll() }
+    @objc private func markAllClicked(_ sender: Any?) { recordSearch(.markAll); markAll() }
+    @objc private func findAllCurrentClicked(_ sender: Any?) { recordSearch(.findAllInCurrent); findAll(inOpenedDocuments: false) }
+    @objc private func findAllOpenedClicked(_ sender: Any?) { recordSearch(.findAllInOpened); findAll(inOpenedDocuments: true) }
+    @objc private func replaceAllOpenedClicked(_ sender: Any?) { recordSearch(.replaceAllInOpened); replaceAllInOpenedDocuments() }
+    @objc private func clearMarksClicked(_ sender: Any?) { recordSearch(.clearMarks); clearMarks() }
     @objc private func copyMarkedClicked(_ sender: Any?) { copyMarkedText() }
 
     // Return in either field is Find Next; Shift-Return searches the other way once.
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         switch selector {
         case #selector(NSResponder.insertNewline(_:)):
-            if tab == .findInFiles { findInFiles(replacing: false) } else if tab == .mark { markAll() } else { findNext(reversed: NSApp.currentEvent?.modifierFlags.contains(.shift) == true) }
+            if tab == .findInFiles {
+                recordSearch(.findInFiles)
+                findInFiles(replacing: false)
+            } else if tab == .mark {
+                recordSearch(.markAll)
+                markAll()
+            } else {
+                let reversed = NSApp.currentEvent?.modifierFlags.contains(.shift) == true
+                recordSearch(reversed ? .findPrevious : .findNext)
+                findNext(reversed: reversed)
+            }
             return true
         case #selector(NSResponder.cancelOperation(_:)):
             close()

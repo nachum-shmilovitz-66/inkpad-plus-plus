@@ -48,6 +48,79 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return .terminateLater
     }
 
+    // MARK: - Macro (MAC-42)
+
+    private(set) lazy var shortcutDialog = ShortcutDialog()
+    private(set) lazy var runMacroDialog: RunMacroController = {
+        let dialog = RunMacroController()
+        dialog.onRun = { [weak self] index, times in
+            guard let self else { return }
+            let steps = index.map { MacroStore.shared.macros[$0].steps } ?? MacroRecorder.shared.steps
+            self.playMacro(steps, times: times)
+        }
+        return dialog
+    }()
+
+    private var recorder: MacroRecorder { .shared }
+    private var openEditors: [ScintillaView] { mainWindow.openTabs.map(\.editor) }
+
+    @IBAction func startRecording(_ sender: Any?) { recorder.start(editors: openEditors) }
+
+    @IBAction func stopRecording(_ sender: Any?) {
+        recorder.stop(editors: openEditors)
+        reloadRunMacroDialog()
+    }
+
+    @IBAction func playbackMacro(_ sender: Any?) { playMacro(recorder.steps, times: 1) }
+
+    /// Save Current Recorded Macro…: a name and an optional shortcut; it joins the Macro menu.
+    @IBAction func saveCurrentMacro(_ sender: Any?) {
+        let steps = recorder.steps
+        guard !steps.isEmpty else { return }
+        shortcutDialog.run(in: mainWindow.window) { [weak self] result in
+            guard let (name, key, modifiers) = result else { return }
+            MacroStore.shared.add(Macro(name: name, steps: steps, key: key, modifiers: modifiers.rawValue))
+            MacroRecorder.shared.markSaved()
+            self?.reloadRunMacroDialog()
+        }
+    }
+
+    @IBAction func showRunMacroDialog(_ sender: Any?) {
+        reloadRunMacroDialog()
+        runMacroDialog.show()
+    }
+
+    @IBAction func runSavedMacro(_ sender: Any?) {
+        guard let index = (sender as? NSMenuItem)?.tag, MacroStore.shared.macros.indices.contains(index) else { return }
+        playMacro(MacroStore.shared.macros[index].steps, times: 1)
+    }
+
+    private func reloadRunMacroDialog() {
+        runMacroDialog.reload(hasRecording: !recorder.steps.isEmpty && !recorder.isRecording,
+                              saved: MacroStore.shared.macros.map(\.name))
+    }
+
+    /// Plays `steps` `times` times (nil: until the end of the file); each document touched is one
+    /// undo step for the whole run, as in Notepad++.
+    func playMacro(_ steps: [MacroStep], times: Int?) {
+        guard !recorder.isRecording, !steps.isEmpty else { NSSound.beep(); return }
+        var touched: [ScintillaView] = []
+        let playOnce = {
+            self.recorder.play(steps, editor: { [weak self] in self?.mainWindow.activeTab?.editor },
+                               search: { [weak self] in self?.findReplace.perform($0) }, touched: &touched)
+        }
+        if let times {
+            for _ in 0..<max(times, 1) { playOnce() }
+        } else {
+            let editor = { [weak self] in self?.mainWindow.activeTab?.editor }
+            MacroRecorder.runUntilEndOfFile(
+                lineCount: { editor()?.send(SCI_GETLINECOUNT) ?? 0 },
+                caretLine: { editor().map { $0.send(SCI_LINEFROMPOSITION, $0.send(SCI_GETCURRENTPOS)) } ?? 0 },
+                play: playOnce)
+        }
+        MacroRecorder.endUndoGroups(touched)
+    }
+
     // MARK: - Settings › Theme (MAC-36)
 
     private(set) lazy var styleConfigurator = StyleConfiguratorController()
@@ -116,6 +189,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             MainMenu.fillThemeMenu(menu)
             return
         }
+        if menu.title == "Macro" {
+            MainMenu.fillMacroMenu(menu)
+            return
+        }
         menu.removeAllItems()
         let recent = RecentFilesStore.shared.files
         guard !recent.isEmpty else {
@@ -163,5 +240,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard panel.runModal() == .OK else { return }
         panel.urls.forEach { mainWindow.open($0) }
         mainWindow.showWindow(nil)
+    }
+}
+
+extension AppDelegate: NSMenuItemValidation {
+    /// Notepad++'s checkMacroState: what the Macro menu allows while recording or not.
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        let recorder = MacroRecorder.shared
+        switch item.action {
+        case #selector(startRecording(_:)): return !recorder.isRecording
+        case #selector(stopRecording(_:)): return recorder.isRecording
+        case #selector(playbackMacro(_:)): return !recorder.steps.isEmpty && !recorder.isRecording
+        case #selector(saveCurrentMacro(_:)): return !recorder.steps.isEmpty && !recorder.isRecording && !recorder.recordingSaved
+        case #selector(showRunMacroDialog(_:)):
+            return (!recorder.steps.isEmpty && !recorder.isRecording) || !MacroStore.shared.macros.isEmpty
+        default: return true
+        }
     }
 }

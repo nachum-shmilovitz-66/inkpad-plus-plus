@@ -576,6 +576,9 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         case SCN_MARGINCLICK where Int(n.margin) == Margin.symbol && n.modifiers == 0:
             // A click in the bookmark margin toggles that line's bookmark.
             Marker(editor: editor).toggleBookmark(editor.send(SCI_LINEFROMPOSITION, Int(n.position)))
+        case SCN_MACRORECORD:
+            MacroRecorder.shared.scintillaMessage(Int(n.message), wParam: Int(n.wParam), lParam: Int(n.lParam),
+                                                  eolMode: editor.send(SCI_GETEOLMODE))
         case SCN_MARGINRIGHTCLICK where Int(n.margin) == Margin.symbol:
             if let event = NSApp.currentEvent {
                 NSMenu.popUpContextMenu(MainMenu.bookmarkMenu(), with: event, for: editor)

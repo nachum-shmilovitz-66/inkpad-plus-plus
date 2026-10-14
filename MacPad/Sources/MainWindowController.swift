@@ -196,6 +196,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     private func add(_ tab: EditorTab) {
         tab.hostWindow = window
+        MacroRecorder.shared.attach(tab.editor)
         tab.onChange = { [weak self] in self?.refresh() }
         tab.onExternalChange = { [weak self] _ in self?.presentExternalChangeIfNeeded() }
         tab.onTextModified = { [weak self, weak tab] in

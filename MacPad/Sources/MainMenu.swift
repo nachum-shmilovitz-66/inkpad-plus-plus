@@ -12,6 +12,10 @@ enum MainMenu {
         main.addItem(submenu(viewMenu()))
         main.addItem(submenu(languageMenu()))
         main.addItem(submenu(settingsMenu()))
+        let macro = NSMenu(title: "Macro")
+        macro.delegate = AppDelegate.shared  // rebuilt on open: the saved macros change
+        fillMacroMenu(macro)
+        main.addItem(submenu(macro))
         let window = windowMenu()
         main.addItem(submenu(window))
         NSApp.windowsMenu = window
@@ -317,6 +321,26 @@ enum MainMenu {
             }
         }
         return menu
+    }
+
+    /// Notepad++'s Macro menu (MAC-42). Its hidden Ctrl+Shift+R toggle is ⇧⌘R on Start and Stop
+    /// (only one is enabled at a time); Playback is ⇧⌘P as Ctrl+Shift+P.
+    static func fillMacroMenu(_ menu: NSMenu) {
+        menu.removeAllItems()
+        menu.addItem(item("Start Recording", #selector(AppDelegate.startRecording(_:)), "r", [.command, .shift]))
+        menu.addItem(item("Stop Recording", #selector(AppDelegate.stopRecording(_:)), "r", [.command, .shift]))
+        menu.addItem(item("Playback", #selector(AppDelegate.playbackMacro(_:)), "p", [.command, .shift]))
+        menu.addItem(item("Save Current Recorded Macro…", #selector(AppDelegate.saveCurrentMacro(_:))))
+        menu.addItem(item("Run a Macro Multiple Times…", #selector(AppDelegate.showRunMacroDialog(_:))))
+        let macros = MacroStore.shared.macros
+        guard !macros.isEmpty else { return }
+        menu.addItem(.separator())
+        for (index, macro) in macros.enumerated() {
+            let entry = NSMenuItem(title: macro.name, action: #selector(AppDelegate.runSavedMacro(_:)), keyEquivalent: macro.key)
+            entry.keyEquivalentModifierMask = NSEvent.ModifierFlags(rawValue: macro.modifiers)
+            entry.tag = index
+            menu.addItem(entry)
+        }
     }
 
     /// Notepad++'s Settings menu. Preferences live in the app menu (⌘,) on a Mac.
