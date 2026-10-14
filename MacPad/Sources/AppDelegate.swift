@@ -28,6 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if !restored { mainWindow.newTab() }
         }
         mainWindow.showWindow(nil)
+        mainWindow.restoreWorkspace()
         NSApp.activate(ignoringOtherApps: true)
     }
 

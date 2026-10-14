@@ -584,6 +584,60 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         window?.makeFirstResponder(editor)
     }
 
+    // MARK: - Folder as Workspace (MAC-46)
+
+    let workspace = FolderWorkspacePanel()
+    private(set) lazy var workspaceDock: DockPanel = {
+        let dock = DockPanel(title: "Folder as Workspace", content: workspace)
+        dock.addTool(symbol: "scope", tip: "Locate current file", target: workspace, action: #selector(FolderWorkspacePanel.locateCurrentFile(_:)))
+        dock.addTool(symbol: "chevron.down.2", tip: "Expand all", target: workspace, action: #selector(FolderWorkspacePanel.expandAll(_:)))
+        dock.addTool(symbol: "chevron.up.2", tip: "Collapse all", target: workspace, action: #selector(FolderWorkspacePanel.collapseAll(_:)))
+        dock.onClose = { [weak self] in self?.setWorkspaceVisible(false) }
+        workspace.onOpenFile = { [weak self] url in self?.open(url) }
+        workspace.onFindInFiles = { folder in
+            let dialog = AppDelegate.shared.findReplace
+            dialog.show(.findInFiles)
+            dialog.directoryField.stringValue = folder.path
+        }
+        workspace.currentFile = { [weak self] in self?.activeTab?.fileURL }
+        return dock
+    }()
+
+    private static let workspaceVisibleKey = "WorkspaceVisible"
+    var isWorkspaceVisible: Bool { isPanelVisible(workspaceDock) }
+
+    @IBAction func toggleWorkspace(_ sender: Any?) { setWorkspaceVisible(!isWorkspaceVisible) }
+
+    func setWorkspaceVisible(_ visible: Bool) {
+        setPanel(workspaceDock, visible: visible, in: leftDock)
+        AppEnvironment.defaults.set(visible, forKey: Self.workspaceVisibleKey)
+    }
+
+    /// File › Open Folder as Workspace…: one or more folders become roots of the panel.
+    @IBAction func openFolderAsWorkspace(_ sender: Any?) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = true
+        guard let window else { return }
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let self else { return }
+            self.addWorkspaceFolders(panel.urls)
+        }
+    }
+
+    func addWorkspaceFolders(_ folders: [URL]) {
+        workspace.add(folders)
+        setWorkspaceVisible(true)
+    }
+
+    /// At launch the panel comes back if it was open with folders in it.
+    func restoreWorkspace() {
+        if AppEnvironment.defaults.bool(forKey: Self.workspaceVisibleKey) && !workspace.roots.isEmpty {
+            setWorkspaceVisible(true)
+        }
+    }
+
     // MARK: - Document Map (MAC-45)
 
     let documentMap = DocumentMapPanel()
@@ -823,6 +877,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             return !running || mine
         case #selector(commentCommand(_:)), #selector(changeIndent(_:)), #selector(lineOperation(_:)), #selector(blankOperation(_:)):
             return activeTab?.isReadOnly == false
+        case #selector(toggleWorkspace(_:)):
+            item.state = isWorkspaceVisible ? .on : .off
         case #selector(toggleDocumentMap(_:)):
             item.state = isDocumentMapVisible ? .on : .off
         case #selector(toggleFunctionList(_:)):
@@ -898,6 +954,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
 
     func windowDidBecomeKey(_ notification: Notification) {
         presentExternalChangeIfNeeded()
+        if isWorkspaceVisible { workspace.refresh() }  // files may have changed while away
     }
 
     /// Asks about a file another program changed or deleted — only for the visible tab, only with

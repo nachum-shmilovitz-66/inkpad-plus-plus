@@ -60,6 +60,7 @@ enum MainMenu {
         let menu = NSMenu(title: "File")
         menu.addItem(item("New", #selector(AppDelegate.newDocument(_:)), "n"))
         menu.addItem(item("Open…", #selector(AppDelegate.openDocument(_:)), "o"))
+        menu.addItem(item("Open Folder as Workspace…", #selector(MainWindowController.openFolderAsWorkspace(_:))))
         let recent = NSMenu(title: "Recent Files")
         recent.delegate = AppDelegate.shared
         let recentItem = NSMenuItem(title: "Recent Files", action: nil, keyEquivalent: "")
@@ -383,6 +384,7 @@ enum MainMenu {
         menu.addItem(item("Word Wrap", #selector(MainWindowController.toggleWordWrap(_:))))
         menu.addItem(item("Monitoring (tail -f)", #selector(MainWindowController.toggleMonitoring(_:))))
         menu.addItem(.separator())
+        menu.addItem(item("Folder as Workspace", #selector(MainWindowController.toggleWorkspace(_:))))
         menu.addItem(item("Document Map", #selector(MainWindowController.toggleDocumentMap(_:))))
         menu.addItem(item("Function List", #selector(MainWindowController.toggleFunctionList(_:))))
         menu.addItem(.separator())
