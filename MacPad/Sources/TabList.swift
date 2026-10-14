@@ -95,8 +95,8 @@ enum TabTitle {
     /// Unsaved changes are marked on the tab itself, since macOS puts the window's edited dot in
     /// the close button where a single document would show it.
     /// A monitored (tail -f) tab gets an eye, as Notepad++ shows an eye icon on it.
-    static func tabLabel(displayName: String, isModified: Bool, isMonitoring: Bool = false) -> String {
-        let name = isMonitoring ? "👁 \(displayName)" : displayName
+    static func tabLabel(displayName: String, isModified: Bool, isMonitoring: Bool = false, isReadOnly: Bool = false) -> String {
+        let name = isMonitoring ? "👁 \(displayName)" : isReadOnly ? "🔒 \(displayName)" : displayName
         return isModified ? "• \(name)" : name
     }
 }

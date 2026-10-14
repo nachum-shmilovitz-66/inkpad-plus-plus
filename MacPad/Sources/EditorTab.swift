@@ -27,7 +27,37 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
     /// An untouched "new N" document, which Notepad++ reuses when a file is opened.
     var isPristineUntitled: Bool { fileURL == nil && !isModified && editor.send(SCI_GETLENGTH) == 0 }
     var displayName: String { TabTitle.displayName(url: fileURL, untitledNumber: untitledNumber) }
-    var tabLabel: String { TabTitle.tabLabel(displayName: displayName, isModified: isModified, isMonitoring: isMonitoring) }
+    var tabLabel: String {
+        TabTitle.tabLabel(displayName: displayName, isModified: isModified, isMonitoring: isMonitoring,
+                          isReadOnly: isUserReadOnly || isFileLocked)
+    }
+
+    /// Edit › Read-Only in MacPad++ › Read-Only on Current Document (Notepad++'s user read-only).
+    var isUserReadOnly = false {
+        didSet { applyReadOnly(); onChange?() }
+    }
+    /// The file is locked on disk (Finder's "Locked", the Mac's counterpart of Windows' read-only attribute).
+    private(set) var isFileLocked = false
+    /// Notepad++'s isReadOnly(): the user's flag, the file's, or monitoring.
+    var isReadOnly: Bool { isMonitoring || isUserReadOnly || isFileLocked }
+
+    private func applyReadOnly() { editor.send(SCI_SETREADONLY, isReadOnly ? 1 : 0) }
+
+    /// Edit › Read-Only Attribute: locks or unlocks the file itself.
+    func setFileLocked(_ locked: Bool) throws {
+        guard var url = fileURL else { return }
+        var values = URLResourceValues()
+        values.isUserImmutable = locked
+        try url.setResourceValues(values)
+        isFileLocked = locked
+        applyReadOnly()
+        onChange?()
+    }
+
+    private func refreshFileLock() {
+        isFileLocked = (try? fileURL?.resourceValues(forKeys: [.isUserImmutableKey]).isUserImmutable) == true
+        applyReadOnly()
+    }
 
     /// Monitoring (tail -f): read-only, follows the file as it grows. See startMonitoring().
     private(set) var isMonitoring = false
@@ -86,6 +116,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         pendingExternalChange = nil
         startDiskWatch()
         isLanguageChosenByUser = false
+        refreshFileLock()
         applyLanguage(Self.language(for: url, content: data))
         AppEnvironment.noteRecentDocument(url)
         RecentFilesStore.shared.record(url)
@@ -331,7 +362,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         snapshot = nil
         decoder = nil
         isMonitoring = false
-        editor.send(SCI_SETREADONLY, 0)
+        applyReadOnly()
         startDiskWatch()
         onChange?()
     }
@@ -399,7 +430,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         change()
         editor.send(SCI_EMPTYUNDOBUFFER)
         editor.send(SCI_SETSAVEPOINT)
-        editor.send(SCI_SETREADONLY, isMonitoring ? 1 : 0)
+        applyReadOnly()
     }
 
     // MARK: - File Status Auto-Detection (changes made by other programs)
@@ -461,7 +492,9 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         let column = editor.send(SCI_GETCOLUMN, pos)
         let firstVisible = editor.send(SCI_GETFIRSTVISIBLELINE)
 
+        editor.send(SCI_SETREADONLY, 0)  // a read-only document still takes the disk's text
         editor.setUTF8Bytes(loaded.utf8)
+        refreshFileLock()
         if let eol = loaded.lineEnding { editor.send(SCI_SETEOLMODE, eol.rawValue) }
         editor.send(SCI_EMPTYUNDOBUFFER)
         editor.send(SCI_SETSAVEPOINT)

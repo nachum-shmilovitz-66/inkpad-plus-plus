@@ -365,6 +365,86 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     @IBAction func zoomOutText(_ sender: Any?) { activeTab?.editor.send(SCI_ZOOMOUT) }
     @IBAction func restoreTextZoom(_ sender: Any?) { activeTab?.editor.send(SCI_SETZOOM, 0) }
 
+    // MARK: - Edit commands (MAC-40)
+
+    private var beginSelectPosition: Int?
+    private var beginSelectColumnMode = false
+
+    @IBAction func convertCase(_ sender: Any?) {
+        guard let editor = activeTab?.editor, let tag = (sender as? NSMenuItem)?.tag,
+              let conversion = CaseConversion(rawValue: tag), activeTab?.isReadOnly == false else { return }
+        EditCommands(editor: editor).convertCase(conversion)
+    }
+
+    @IBAction func changeIndent(_ sender: Any?) {
+        guard let editor = activeTab?.editor, activeTab?.isReadOnly == false else { return }
+        EditCommands(editor: editor).indent(increase: (sender as? NSMenuItem)?.tag == 1)
+    }
+
+    @IBAction func commentCommand(_ sender: Any?) {
+        guard let tab = activeTab, !tab.isReadOnly, let tag = (sender as? NSMenuItem)?.tag else { return }
+        let commands = EditCommands(editor: tab.editor)
+        let tokens = EditCommands.tokens(for: tab.language)
+        switch tag {
+        case 0: commands.lineComment(.toggle, tokens: tokens, language: tab.language.name)
+        case 1: commands.lineComment(.comment, tokens: tokens, language: tab.language.name)
+        case 2: commands.lineComment(.uncomment, tokens: tokens, language: tab.language.name)
+        case 3: commands.blockComment(tokens: tokens, language: tab.language.name)
+        default: commands.blockUncomment(tokens: tokens, language: tab.language.name)
+        }
+    }
+
+    /// Copy Current Full File path / Filename / Dir. Path, Copy All Filenames / File Paths. An
+    /// untitled document is its tab name ("new 1") and has no directory.
+    @IBAction func copyPathToClipboard(_ sender: Any?) {
+        guard let tag = (sender as? NSMenuItem)?.tag, let text = clipboardText(for: tag) else { return }
+        Self.copyToPasteboard(text)
+    }
+
+    func clipboardText(for tag: Int) -> String? {
+        func path(_ tab: EditorTab) -> String { tab.fileURL?.path ?? tab.displayName }
+        func name(_ tab: EditorTab) -> String { tab.fileURL?.lastPathComponent ?? tab.displayName }
+        switch tag {
+        case 0: return activeTab.map(path)
+        case 1: return activeTab.map(name)
+        case 2: return activeTab.map { $0.fileURL?.deletingLastPathComponent().path ?? "" }
+        case 3: return tabs.items.map { name($0) + "\r\n" }.joined()
+        case 4: return tabs.items.map { path($0) + "\r\n" }.joined()
+        default: return nil
+        }
+    }
+
+    @IBAction func readOnlyCommand(_ sender: Any?) {
+        switch (sender as? NSMenuItem)?.tag {
+        case 0: activeTab.map { $0.isUserReadOnly.toggle() }
+        case 1: tabs.items.forEach { $0.isUserReadOnly = true }
+        case 2: tabs.items.forEach { $0.isUserReadOnly = false }
+        default: break
+        }
+        refresh()
+    }
+
+    @IBAction func toggleFileLocked(_ sender: Any?) {
+        guard let tab = activeTab else { return }
+        do {
+            try tab.setFileLocked(!tab.isFileLocked)
+        } catch {
+            let alert = NSAlert(error: error)
+            if let window { alert.beginSheetModal(for: window) }
+        }
+        refresh()
+    }
+
+    @IBAction func beginEndSelect(_ sender: Any?) { beginEndSelect(column: false) }
+    @IBAction func beginEndSelectColumn(_ sender: Any?) { beginEndSelect(column: true) }
+
+    private func beginEndSelect(column: Bool) {
+        guard let editor = activeTab?.editor else { return }
+        if beginSelectPosition != nil && beginSelectColumnMode != column { return }  // the other one is running
+        beginSelectColumnMode = column
+        EditCommands.beginOrEndSelect(editor, begin: &beginSelectPosition, columnMode: column)
+    }
+
     // MARK: - Edit › Line / Blank Operations (MAC-39)
 
     @IBAction func lineOperation(_ sender: Any?) {
@@ -590,6 +670,21 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             item.state = editor.send(SCI_GETVIEWWS) != Int(SCWS_INVISIBLE) ? .on : .off
         case #selector(selectNextTab(_:)), #selector(selectPreviousTab(_:)):
             return tabs.count > 1
+        case #selector(convertCase(_:)):
+            return editor.send(SCI_GETSELECTIONEMPTY) == 0 && activeTab?.isReadOnly == false
+        case #selector(readOnlyCommand(_:)):
+            if item.tag == 0 { item.state = activeTab?.isUserReadOnly == true ? .on : .off }
+            return activeTab?.isMonitoring != true && (item.tag != 0 || activeTab?.isFileLocked != true)
+        case #selector(toggleFileLocked(_:)):
+            item.state = activeTab?.isFileLocked == true ? .on : .off
+            return activeTab?.fileURL != nil
+        case #selector(beginEndSelect(_:)), #selector(beginEndSelectColumn(_:)):
+            let running = beginSelectPosition != nil
+            let mine = item.action == #selector(beginEndSelectColumn(_:)) ? beginSelectColumnMode : !beginSelectColumnMode
+            item.state = running && mine ? .on : .off
+            return !running || mine
+        case #selector(commentCommand(_:)), #selector(changeIndent(_:)), #selector(lineOperation(_:)), #selector(blankOperation(_:)):
+            return activeTab?.isReadOnly == false
         case #selector(selectLanguage(_:)):
             item.state = (item.representedObject as? String) == activeTab?.language.name ? .on : .off
         case #selector(toggleMonitoring(_:)):

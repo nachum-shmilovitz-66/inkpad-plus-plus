@@ -79,9 +79,84 @@ enum MainMenu {
         menu.addItem(item("Paste", #selector(NSText.paste(_:)), "v"))
         menu.addItem(item("Delete", Selector(("clear:"))))
         menu.addItem(item("Select All", #selector(NSText.selectAll(_:)), "a"))
+        menu.addItem(item("Begin/End Select", #selector(MainWindowController.beginEndSelect(_:)), "b", [.command, .shift]))
+        menu.addItem(item("Begin/End Select in Column Mode", #selector(MainWindowController.beginEndSelectColumn(_:)), "b", [.command, .option, .shift]))
         menu.addItem(.separator())
+        menu.addItem(submenu(copyToClipboardMenu()))
+        menu.addItem(submenu(indentMenu()))
+        menu.addItem(submenu(convertCaseMenu()))
         menu.addItem(submenu(lineOperationsMenu()))
+        menu.addItem(submenu(commentMenu()))
         menu.addItem(submenu(blankOperationsMenu()))
+        menu.addItem(.separator())
+        menu.addItem(submenu(readOnlyMenu()))
+        menu.addItem(item("Read-Only Attribute (Locked in Finder)", #selector(MainWindowController.toggleFileLocked(_:))))
+        return menu
+    }
+
+    private static func tagged(_ title: String, _ action: Selector, _ tag: Int, _ key: String = "",
+                               _ mods: NSEvent.ModifierFlags = .command) -> NSMenuItem {
+        let entry = item(title, action, key, mods)
+        entry.tag = tag
+        return entry
+    }
+
+    /// Edit › Copy to Clipboard (MAC-40).
+    private static func copyToClipboardMenu() -> NSMenu {
+        let menu = NSMenu(title: "Copy to Clipboard")
+        let action = #selector(MainWindowController.copyPathToClipboard(_:))
+        menu.addItem(tagged("Copy Current Full File path", action, 0))
+        menu.addItem(tagged("Copy Current Filename", action, 1))
+        menu.addItem(tagged("Copy Current Dir. Path", action, 2))
+        menu.addItem(.separator())
+        menu.addItem(tagged("Copy All Filenames", action, 3))
+        menu.addItem(tagged("Copy All File Paths", action, 4))
+        return menu
+    }
+
+    /// Edit › Indent: ⌘] / ⌘[ as in Mac editors (Notepad++ has no default shortcut).
+    private static func indentMenu() -> NSMenu {
+        let menu = NSMenu(title: "Indent")
+        menu.addItem(tagged("Increase Line Indent", #selector(MainWindowController.changeIndent(_:)), 1, "]"))
+        menu.addItem(tagged("Decrease Line Indent", #selector(MainWindowController.changeIndent(_:)), 0, "["))
+        return menu
+    }
+
+    /// Edit › Convert Case to. Notepad++'s Ctrl+U / Ctrl+Shift+U are ⌘U / ⇧⌘U; its Alt+U
+    /// combinations (⌥ types accents on a Mac) are ⌃⌘U with ⇧ / ⌥.
+    private static func convertCaseMenu() -> NSMenu {
+        let menu = NSMenu(title: "Convert Case to")
+        let action = #selector(MainWindowController.convertCase(_:))
+        let keys: [(String, NSEvent.ModifierFlags)] = [
+            ("u", [.command, .shift]), ("u", .command), ("u", [.command, .control]), ("u", [.command, .control, .shift]),
+            ("u", [.command, .control, .option]), ("u", [.command, .control, .option, .shift]), ("", .command), ("", .command),
+        ]
+        for conversion in CaseConversion.allCases {
+            let key = keys[conversion.rawValue]
+            menu.addItem(tagged(conversion.title, action, conversion.rawValue, key.0, key.1))
+        }
+        return menu
+    }
+
+    /// Edit › Comment/Uncomment. Notepad++'s Ctrl+Q (toggle) is ⌘/ here — ⌘Q quits a Mac app.
+    private static func commentMenu() -> NSMenu {
+        let menu = NSMenu(title: "Comment/Uncomment")
+        let action = #selector(MainWindowController.commentCommand(_:))
+        menu.addItem(tagged("Toggle Single Line Comment", action, 0, "/"))
+        menu.addItem(tagged("Single Line Comment", action, 1, "k"))
+        menu.addItem(tagged("Single Line Uncomment", action, 2, "k", [.command, .shift]))
+        menu.addItem(tagged("Block Comment", action, 3, "/", [.command, .option]))
+        menu.addItem(tagged("Block Uncomment", action, 4))
+        return menu
+    }
+
+    /// Edit › Read-Only in MacPad++ (Notepad++'s user read-only, not the file's).
+    private static func readOnlyMenu() -> NSMenu {
+        let menu = NSMenu(title: "Read-Only in MacPad++")
+        let action = #selector(MainWindowController.readOnlyCommand(_:))
+        menu.addItem(tagged("Read-Only on Current Document", action, 0))
+        menu.addItem(tagged("Read-Only for All Documents", action, 1))
+        menu.addItem(tagged("Clear Read-Only for All Documents", action, 2))
         return menu
     }
 
