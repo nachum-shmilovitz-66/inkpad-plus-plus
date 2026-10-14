@@ -82,17 +82,70 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         onChange?()
     }
 
-    private func write(to url: URL) -> Bool {
+    /// Asks whether to save as administrator; the host's answer arrives through the callback.
+    /// Nil means the standard alert; tests set it to answer without UI.
+    var adminSaveConfirmation: ((URL, @escaping (Bool) -> Void) -> Void)?
+
+    private func write(to url: URL, completion: @escaping (Bool) -> Void) {
+        let data: Data
         do {
-            try TextFile.encode(editor.utf8Bytes(), as: encoding).write(to: url, options: .atomic)
+            data = try TextFile.encode(editor.utf8Bytes(), as: encoding)
+            try data.write(to: url, options: .atomic)
         } catch {
-            if let hostWindow {
-                NSApp.presentError(error, modalFor: hostWindow, delegate: nil, didPresent: nil, contextInfo: nil)
+            if PrivilegedSave.isPermissionDenied(error),
+               let bytes = try? TextFile.encode(editor.utf8Bytes(), as: encoding) {
+                offerAdminSave(bytes, to: url, completion: completion)
             } else {
-                NSApp.presentError(error)
+                presentSaveError(error)
+                completion(false)
             }
-            return false
+            return
         }
+        didWrite(to: url)
+        completion(true)
+    }
+
+    /// MAC-22: "You don't have permission to save …" → Save as Administrator…
+    private func offerAdminSave(_ data: Data, to url: URL, completion: @escaping (Bool) -> Void) {
+        let proceed: (Bool) -> Void = { [weak self] yes in
+            guard let self else { return }
+            guard yes else { completion(false); return }
+            do {
+                try PrivilegedSave.save(data, to: url)
+            } catch PrivilegedSaveError.cancelled {
+                completion(false)  // the user dismissed the password prompt: stay dirty, say nothing
+                return
+            } catch {
+                self.presentSaveError(error)
+                completion(false)
+                return
+            }
+            self.didWrite(to: url)
+            completion(true)
+        }
+        if let adminSaveConfirmation { adminSaveConfirmation(url, proceed); return }
+        let alert = NSAlert()
+        alert.messageText = "You don\u{2019}t have permission to save \u{201C}\(url.lastPathComponent)\u{201D}."
+        alert.informativeText = "\(url.path)\n\nMacPad++ can save it with administrator rights. macOS will ask for your password or Touch ID."
+        alert.addButton(withTitle: "Save as Administrator\u{2026}")
+        alert.addButton(withTitle: "Cancel")
+        if let hostWindow {
+            alert.beginSheetModal(for: hostWindow) { proceed($0 == .alertFirstButtonReturn) }
+        } else {
+            proceed(alert.runModal() == .alertFirstButtonReturn)
+        }
+    }
+
+    private func presentSaveError(_ error: Error) {
+        if let hostWindow {
+            NSApp.presentError(error, modalFor: hostWindow, delegate: nil, didPresent: nil, contextInfo: nil)
+        } else {
+            NSApp.presentError(error)
+        }
+    }
+
+    /// Bookkeeping after the file is on disk, however it got there.
+    private func didWrite(to url: URL) {
         let languageChanged = fileURL?.pathExtension != url.pathExtension
         fileURL = url
         format.markSaved()
@@ -104,7 +157,6 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         AppEnvironment.noteRecentDocument(url)
         RecentFilesStore.shared.record(url)
         onChange?()
-        return true
     }
 
     /// Saves, asking for a location if the document is untitled. Calls back with success.
@@ -113,10 +165,8 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         // freshly appended lines). The buffer is read-only and always matches the disk anyway.
         if isMonitoring { completion?(true); return }
         if let url = fileURL {
-            // Write first, then report: `completion?(write(to:))` would skip the write itself
-            // when there is no completion (MAC-18).
-            let saved = write(to: url)
-            completion?(saved)
+            // Always write, whether or not anyone wants the result (MAC-18).
+            write(to: url) { completion?($0) }
         } else {
             saveAs(completion: completion)
         }
@@ -129,8 +179,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         if let dir = fileURL?.deletingLastPathComponent() { panel.directoryURL = dir }
         let handler: (NSApplication.ModalResponse) -> Void = { [weak self] response in
             guard let self, response == .OK, let url = panel.url else { completion?(false); return }
-            let saved = self.write(to: url)
-            completion?(saved)
+            self.write(to: url) { completion?($0) }
         }
         if let hostWindow {
             panel.beginSheetModal(for: hostWindow, completionHandler: handler)
