@@ -304,7 +304,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         guard !openTabs.isEmpty else { return false }
         panes[0].tabs.select(min(state.activeIndex, panes[0].tabs.count - 1))
         panes[1].tabs.select(min(state.subActiveIndex, panes[1].tabs.count - 1))
-        activeView = panes[1].tabs.isEmpty ? 0 : state.activeView
+        activeView = panes[1].tabs.isEmpty ? 0 : min(max(state.activeView, 0), 1)  // a crafted session never indexes past the two views (MAC-63)
         normalizeViews()
         refresh()
         return true
@@ -327,7 +327,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             do {
                 try tab.load(URL(fileURLWithPath: document.path))
             } catch {
-                NSLog("MacPad++: skipping \(document.path) from the session: \(error.localizedDescription)")
+                AppEnvironment.log.notice("skipping \(document.path, privacy: .private) from the session: \(error.localizedDescription, privacy: .public)")
                 continue
             }
             add(tab, toView: view)

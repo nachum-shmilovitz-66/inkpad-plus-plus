@@ -200,7 +200,9 @@ final class MacroRecorder {
                 let wParam = step.message == Int(SCI_ADDTEXT) || step.message == Int(SCI_APPENDTEXT) ? bytes.count - 1 : step.wParam
                 bytes.withUnsafeBytes { _ = view.send(Int32(step.message), wParam, pointer: $0.baseAddress) }
             case .menuCommand:
-                guard let name = step.action else { continue }
+                // MAC-63: only what can be recorded is played — a hand-edited macros.json cannot send
+                // any other selector through the responder chain.
+                guard let name = step.action, Self.isRecordable(NSSelectorFromString(name)) else { continue }
                 let item = NSMenuItem(title: "", action: NSSelectorFromString(name), keyEquivalent: "")
                 item.tag = step.tag
                 NSApp.sendAction(NSSelectorFromString(name), to: nil, from: item)

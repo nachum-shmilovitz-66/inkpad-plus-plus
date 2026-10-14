@@ -1,4 +1,5 @@
 import AppKit
+import os
 
 /// Where the app keeps its per-user state, and whether it is the unit tests' host.
 ///
@@ -37,6 +38,9 @@ enum AppEnvironment {
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
         return base.appendingPathComponent("MacPad++")
     }()
+
+    /// The unified log; file paths go in as private (MAC-63).
+    static let log = Logger(subsystem: "app.macpad.MacPad", category: "app")
 
     /// Adds a file to macOS's recent documents (Dock menu, Open Recent) — never from the tests.
     static func noteRecentDocument(_ url: URL) {

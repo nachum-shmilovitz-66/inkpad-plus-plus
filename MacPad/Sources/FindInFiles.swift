@@ -193,7 +193,7 @@ final class FindInFilesJob {
         if let open {
             editor = open.editor
         } else {
-            guard let data = try? Data(contentsOf: url) else { return }  // unreadable: skipped, as in Notepad++
+            guard let data = try? TextFile.read(url) else { return }  // unreadable or over 2 GB: skipped, as in Notepad++
             let loaded = TextFile.decode(data)
             scratch.setUTF8Bytes(loaded.utf8)
             loadedEncoding = loaded.encoding

@@ -68,6 +68,24 @@ enum TextFile {
         }
     }
 
+    /// MAC-63: Notepad++ refuses files over 2 GB ("File is too big to be opened"); so does MacPad++,
+    /// before reading a byte (a whole-file read of more would exhaust memory).
+    static var maximumOpenSize: Int64 = 2 * 1024 * 1024 * 1024
+
+    struct TooLarge: LocalizedError, Equatable {
+        let size: Int64
+        var errorDescription: String? { "The file is too big to be opened by MacPad++ (\(ByteCountFormatter.string(fromByteCount: size, countStyle: .file)))." }
+    }
+
+    /// Reads a whole file, refusing one larger than `maximumOpenSize`.
+    static func read(_ url: URL) throws -> Data {
+        if let size = try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber,
+           size.int64Value > maximumOpenSize {
+            throw TooLarge(size: size.int64Value)
+        }
+        return try Data(contentsOf: url)
+    }
+
     static func decode(_ data: Data) -> Loaded {
         let bytes = [UInt8](data.prefix(3))
         let utf8: Data

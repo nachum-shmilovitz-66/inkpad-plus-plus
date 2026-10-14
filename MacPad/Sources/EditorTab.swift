@@ -167,7 +167,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
     // MARK: - Loading and saving
 
     func load(_ url: URL) throws {
-        let data = try Data(contentsOf: url)
+        let data = try TextFile.read(url)
         let loaded = TextFile.decode(data)
         editor.setUTF8Bytes(loaded.utf8)
         if let eol = loaded.lineEnding { editor.send(SCI_SETEOLMODE, eol.rawValue) }
@@ -263,7 +263,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
                         self.presentSaveError(FileInstaller.Failure.io(why))
                         completion(false)
                     case .failed(let why):
-                        NSLog("MacPad++: helper could not save \(url.path) (\(why)); using the password prompt")
+                        AppEnvironment.log.notice("helper could not save \(url.path, privacy: .private) (\(why, privacy: .public)); using the password prompt")
                         self.passwordSave(data, to: url, completion: completion)
                     }
                 }
@@ -477,7 +477,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
 
     /// Reads the whole file, as on load, and positions at the end.
     private func reloadForMonitoring(_ url: URL) throws {
-        let data = try Data(contentsOf: url)
+        let data = try TextFile.read(url)
         let loaded = TextFile.decode(data)
         replaceReadOnlyText { editor.setUTF8Bytes(loaded.utf8) }
         if let eol = loaded.lineEnding { editor.send(SCI_SETEOLMODE, eol.rawValue) }
@@ -493,7 +493,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
     private func appendFromDisk(_ url: URL, from offset: UInt64) {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return }
         defer { try? handle.close() }
-        guard (try? handle.seek(toOffset: offset)) != nil, let bytes = try? handle.readToEnd(), !bytes.isEmpty,
+        guard (try? handle.seek(toOffset: offset)) != nil, let bytes = try? handle.read(upToCount: Self.maximumAppend), !bytes.isEmpty,
               var decoder else { return }
         let text = decoder.feed(bytes)
         self.decoder = decoder
@@ -510,6 +510,9 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
         if following { editor.send(SCI_DOCUMENTEND) }
         changed()
     }
+
+    /// MAC-63: at most this much is appended per check; the rest follows on the next one.
+    static let maximumAppend = 64 * 1024 * 1024
 
     /// Changes the text of the read-only monitored buffer without it counting as an edit:
     /// no undo history, no dirty state.
@@ -574,7 +577,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
     /// Reads the file again, keeping the caret's line and column and the scroll position.
     func reloadFromDisk() throws {
         guard let url = fileURL else { return }
-        let loaded = TextFile.decode(try Data(contentsOf: url))
+        let loaded = TextFile.decode(try TextFile.read(url))
         let pos = editor.send(SCI_GETCURRENTPOS)
         let line = editor.send(SCI_LINEFROMPOSITION, pos)
         let column = editor.send(SCI_GETCOLUMN, pos)
