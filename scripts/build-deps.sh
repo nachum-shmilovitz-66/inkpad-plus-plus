@@ -2,6 +2,7 @@
 # Builds the editor engine MacPad++ links against, from the read-only Notepad++ tree in vendor/:
 #   build/deps/Scintilla.framework   (Scintilla's own Xcode project, Cocoa backend)
 #   build/deps/liblexilla.a          (compiled here directly; see below)
+#   build/deps/libscintilla-boostregex.a  (Notepad++'s Boost regex engine, linked into Scintilla)
 #
 # Lexilla is not built from its Xcode project: that project hard-codes a signing team and does
 # not list the three lexers Notepad++ adds (LexObjC, LexSearchResult, LexUser), so it fails to
@@ -20,13 +21,44 @@ TARGET=arm64-apple-macos13.0
 [[ ${1:-} == --clean ]] && rm -rf "$OUT" "$OBJ" "$ROOT/build/dd-scintilla"
 mkdir -p "$OUT" "$OBJ" "$OBJ/shim"
 
+echo "== libscintilla-boostregex.a"
+# Notepad++'s regex engine for Scintilla (MAC-29): boostregex/BoostRegExSearch.cxx with Boost.Regex
+# in header-only standalone mode, plugged in through SCI_OWNREGEX — exactly how Notepad++ builds
+# it (boostregex/nppSpecifics.mak), so Regex searches use Boost's Perl syntax, not Scintilla's.
+BRX=$ROOT/build/obj-boostregex
+mkdir -p "$BRX"
+brx_objs=()
+for src in $NPP/boostregex/{BoostRegExSearch,UTF8DocumentIterator}.cxx $ROOT/scripts/deps/BoostRegexLocale.cxx; do
+  name=${src:t:r}
+  o=$BRX/$name.o
+  brx_objs+=$o
+  [[ -f $o && ! $src -nt $o ]] || xcrun clang++ -target $TARGET -std=c++17 -O2 -fPIC -DNDEBUG \
+    -DSCI_OWNREGEX -DBOOST_REGEX_STANDALONE \
+    -I"$NPP/scintilla/include" -I"$NPP/scintilla/src" -I"$NPP/boostregex" -c "$src" -o "$o"
+done
+rm -f "$OUT/libscintilla-boostregex.a"
+xcrun libtool -static -o "$OUT/libscintilla-boostregex.a" $brx_objs
+# BoostRegexLocale.o is referenced by nothing (it only runs a static initializer), hence -force_load
+# below; without it macOS would classify every non-ASCII character as a non-letter.
+cp "$NPP/scintilla/include/BoostRegexSearch.h" "$OUT/"   # Notepad++'s extra SCFIND_REGEXP_* flags
+
 echo "== Scintilla.framework"
 xcodebuild -quiet \
   -project "$NPP/scintilla/cocoa/Scintilla/Scintilla.xcodeproj" -scheme Scintilla \
   -configuration Release -arch arm64 -derivedDataPath "$ROOT/build/dd-scintilla" \
   SYMROOT="$OUT" CONFIGURATION_BUILD_DIR="$OUT" MACOSX_DEPLOYMENT_TARGET=13.0 \
   CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= CODE_SIGN_STYLE=Manual \
+  GCC_PREPROCESSOR_DEFINITIONS='$(inherited) SCI_OWNREGEX=1' \
+  OTHER_LDFLAGS="-Wl,-force_load,$OUT/libscintilla-boostregex.a" \
   build
+# Without SCI_OWNREGEX, Document.cxx defines its own CreateRegexSearch and the force-loaded Boost
+# one would be a duplicate symbol, so the link succeeding plus Boost's class being present proves
+# the switch took effect.
+symbols=$(nm "$OUT/Scintilla.framework/Scintilla")
+if [[ $symbols != *BoostRegexSearch* ]]; then
+  echo "Scintilla.framework does not use Notepad++'s Boost regex engine (SCI_OWNREGEX not applied)" >&2
+  exit 1
+fi
 
 # Notepad++ appended an unguarded C++ block (SearchResultMarkings, uses std::vector) to the public
 # Scintilla.h. Swift's bridging header is compiled as plain Objective-C, so guard it — in the built

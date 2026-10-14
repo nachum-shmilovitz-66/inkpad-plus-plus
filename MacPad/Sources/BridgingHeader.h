@@ -6,3 +6,4 @@
 #import "SciLexer.h"
 #import "Lexilla.h"
 #import "uchardet.h"
+#import "BoostRegexSearch.h"

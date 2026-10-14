@@ -61,6 +61,11 @@ the app, a Developer ID *Installer* certificate signs the package.
   `Scintilla.h`. The Swift bridging header is plain ObjC, so `build-deps.sh` wraps it in
   `#ifdef __cplusplus` in the built framework's copy.
 - Scintilla.h and other vendor files use CRLF line endings: patterns must allow `\r?\n`.
+- Regex search is Notepad++'s Boost engine (MAC-29): `build-deps.sh` builds `boostregex/` into
+  `libscintilla-boostregex.a` and links Scintilla with `SCI_OWNREGEX`. On macOS Boost classifies
+  `wchar_t` through the "C" locale, where libc++ knows no non-ASCII letters (`\w` missed Hebrew);
+  `scripts/deps/BoostRegexLocale.cxx` (force-loaded) installs a UTF-8 `ctype<wchar_t>` facet globally.
+  Notepad++'s extra flags (`SCFIND_REGEXP_DOTMATCHESNL`, …) come from `BoostRegexSearch.h`.
 
 ## Testing gotchas
 
