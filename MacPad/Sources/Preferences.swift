@@ -75,6 +75,12 @@ struct Preferences: Codable, Equatable {
     /// MAC-12: Notepad++ sizes are Windows points; scaled by 4/3 they look the size they do there.
     var scaleWindowsFontSizes = true
 
+    // MARK: Toolbar (MAC-69)
+    /// Notepad++'s Preferences › Toolbar icon choice: SF Symbols (the Mac default), or its Fluent UI
+    /// icons, regular or filled.
+    enum ToolbarIconSet: String, Codable, CaseIterable { case sfSymbols, fluent, filledFluent }
+    var toolbarIconSet = ToolbarIconSet.sfSymbols
+
     init() {}
 
     /// Settings saved by an older version keep their values; newer ones take their defaults.
@@ -115,6 +121,7 @@ struct Preferences: Codable, Equatable {
         replaceStopsWithoutFindingNext = v(.replaceStopsWithoutFindingNext, d.replaceStopsWithoutFindingNext)
         maxRecentFiles = v(.maxRecentFiles, d.maxRecentFiles)
         scaleWindowsFontSizes = v(.scaleWindowsFontSizes, d.scaleWindowsFontSizes)
+        toolbarIconSet = v(.toolbarIconSet, d.toolbarIconSet)
     }
 
     /// The tab setting a language gets: the user's override, else langs.model.xml's, else the default.

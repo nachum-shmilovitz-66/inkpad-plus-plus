@@ -4,7 +4,8 @@ A native macOS port of [Notepad++](https://notepad-plus-plus.org/) v8.9.8.1: Swi
 the same Scintilla/Lexilla editing engine Notepad++ uses, reading Notepad++'s own language, styler
 and theme files unchanged. Not affiliated with the Notepad++ project.
 
-Current release: **0.1.14** (milestones 1–7 done; notarization pending).
+Current release: **1.0.0** (milestones 1–7 done; notarization pending). Each release's installer is
+on the repository's GitHub Releases page (only the newest is kept).
 See `CLAUDE.md` for the roadmap and known gaps.
 
 ## Features
@@ -81,6 +82,14 @@ See `CLAUDE.md` for the roadmap and known gaps.
   editor), each view with its own tabs, synchronized vertical / horizontal scrolling; both views
   kept in the session.
 
+### Toolbar
+- Notepad++'s toolbar under the title bar: its buttons in its order and groups (New, Open, Save,
+  Close | Cut, Copy, Paste | Undo, Redo | Find, Replace | Zoom | Sync scrolling | Word Wrap, Show All
+  Characters | Document Map, Function List, Folder as Workspace | Monitoring | macro buttons).
+- Buttons follow their commands: Save is grey until the document changes, toggles show pressed.
+- Settings › Toolbar: SF Symbols (default) or Notepad++'s Fluent UI icons, regular or filled, in
+  light and dark. View › Show/Hide Toolbar (⌥⌘T) and Customize Toolbar….
+
 ### Installing and the Mac side
 - Signed `.pkg` installer (Developer ID); MacPad++ appears in Finder's Open With for every
   Notepad++ language's extensions (244 of them), never taking a file type over by itself.
@@ -94,10 +103,14 @@ See `CLAUDE.md` for the roadmap and known gaps.
 - MacPad++ › Uninstall MacPad++… removes the app, its helper, the `macpad` link and the receipt
   (optionally your settings). From Terminal:
   `sudo sh "/Applications/MacPad++.app/Contents/Resources/uninstall.sh"`.
+- The name shown in the menu bar, Dock, Finder and installer can be changed for a personal build:
+  `APP_DISPLAY_NAME` in a gitignored `Config/Local.xcconfig` (see `Config/App.xcconfig`).
 - Security review (MAC-25, 2026-10-14): `docs/security/2026-10-14-MAC-25-security-review.md`.
 
 ### Coming next
 - Notarization of the installer (MAC-54).
+- Toolbar buttons still to come with their commands: Save All, Close All, Print, Show Indent Guide,
+  Document List.
 - Not ported yet: User Defined Languages, "Find in these search results…", printing, backups and
   auto-completion settings. Notepad++ plugins (Windows DLLs) cannot run on macOS.
 

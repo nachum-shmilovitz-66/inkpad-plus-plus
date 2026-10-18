@@ -378,6 +378,10 @@ enum MainMenu {
 
     private static func viewMenu() -> NSMenu {
         let menu = NSMenu(title: "View")
+        // MAC-69: the toolbar. AppKit retitles Show/Hide Toolbar as it toggles.
+        menu.addItem(item("Show Toolbar", #selector(NSWindow.toggleToolbarShown(_:)), "t", [.command, .option]))
+        menu.addItem(item("Customize Toolbar…", #selector(NSWindow.runToolbarCustomizationPalette(_:))))
+        menu.addItem(.separator())
         menu.addItem(item("Zoom In", #selector(MainWindowController.zoomInText(_:)), "+"))
         menu.addItem(item("Zoom Out", #selector(MainWindowController.zoomOutText(_:)), "-"))
         menu.addItem(item("Restore Default Zoom", #selector(MainWindowController.restoreTextZoom(_:)), "0"))

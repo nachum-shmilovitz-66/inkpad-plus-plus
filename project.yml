@@ -81,6 +81,11 @@ targets:
           cp "$NPP/src/langs.model.xml" "$NPP/src/stylers.model.xml" "$DEST/"
           rsync -a --delete "$NPP/installer/themes/" "$DEST/themes/"
           rsync -a --delete "$NPP/installer/functionList/" "$DEST/functionList/"
+          # MAC-69: Notepad++'s Fluent UI toolbar icons (light/dark, regular/filled), for the toolbar option.
+          for look in light dark; do
+            mkdir -p "$DEST/icons/$look"
+            rsync -a --delete "$NPP/src/icons/$look/toolbar/" "$DEST/icons/$look/toolbar/"
+          done
       - name: Localized display name
         basedOnDependencyAnalysis: false
         script: |
@@ -126,6 +131,9 @@ targets:
     settings:
       base:
         PRODUCT_NAME: macpad
+        # Its Swift module must not be "macpad": on a case-insensitive disk the test build then
+        # sometimes loads it for `@testable import MacPad` ("cannot load module 'macpad' as 'MacPad'").
+        PRODUCT_MODULE_NAME: MacPadCLI
         PRODUCT_BUNDLE_IDENTIFIER: app.macpad.MacPad.cli
         OTHER_CODE_SIGN_FLAGS: "--identifier app.macpad.MacPad.cli"
         SKIP_INSTALL: YES

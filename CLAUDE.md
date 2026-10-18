@@ -181,6 +181,12 @@ every Notepad++ language (MAC-50, generated), Settings › File Association (MAC
 command-line tool with Notepad++'s options (MAC-52, options ride on the Open Documents Apple event),
 uninstaller (MAC-53). Notarization waits for the user's `notarytool store-credentials MacPad` login.
 
+Toolbar (MAC-69, 2026-10-18): `Toolbar.swift` — `ToolbarLayout.groups` mirrors Notepad++'s `toolBarIcons[]`
+(a test compares them); buttons without a MacPad command yet (Save All, Close All, Print, Indent Guide,
+UDL, Document List) have a nil action and stay hidden. Each button validates like its menu item
+(`ToolbarValidation`); Save is grey while unmodified (`validateToolbarCommand`). Icons: SF Symbols, or
+Notepad++'s Fluent UI set copied from vendor `icons/{light,dark}/toolbar` (Settings › Toolbar).
+
 MAC-25 security review: **done** (2026-10-15) — report in `docs/security/`; fixes MAC-55…MAC-65
 (helper authorizes each write itself, helper outside the bundle, descriptor-based root writes,
 SafeXML, symlink-safe saves and Find in Files, vendor pinned + hardened, patched Raku/Perl lexers

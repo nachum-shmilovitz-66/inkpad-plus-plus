@@ -20,6 +20,8 @@ final class PreferencesController: NSWindowController {
     let dragDropBox = NSButton(checkboxWithTitle: "Enable selected text drag-and-drop", target: nil, action: nil)
     let multiEditBox = NSButton(checkboxWithTitle: "Enable Multi-Editing (⌘+Mouse click/selection)", target: nil, action: nil)
     let eolRoundedBox = NSButton(checkboxWithTitle: "Show line endings as rounded boxes (else plain text)", target: nil, action: nil)
+    // Toolbar (MAC-69)
+    let toolbarIconsPopup = NSPopUpButton()
     // Margins / Border / Edge
     let foldStylePopup = NSPopUpButton()
     let lineNumbersBox = NSButton(checkboxWithTitle: "Display line numbers", target: nil, action: nil)
@@ -114,6 +116,7 @@ final class PreferencesController: NSWindowController {
         dragDropBox.state = p.dragAndDrop ? .on : .off
         multiEditBox.state = p.multiEditing ? .on : .off
         eolRoundedBox.state = p.eolRounded ? .on : .off
+        toolbarIconsPopup.selectItem(at: Preferences.ToolbarIconSet.allCases.firstIndex(of: p.toolbarIconSet) ?? 0)
         foldStylePopup.selectItem(at: Preferences.FoldMarkStyle.allCases.firstIndex(of: p.foldMarkStyle) ?? 3)
         lineNumbersBox.state = p.showLineNumbers ? .on : .off
         dynamicWidthBox.state = p.lineNumberDynamicWidth ? .on : .off
@@ -175,6 +178,7 @@ final class PreferencesController: NSWindowController {
             p.dragAndDrop = dragDropBox.state == .on
             p.multiEditing = multiEditBox.state == .on
             p.eolRounded = eolRoundedBox.state == .on
+            p.toolbarIconSet = Preferences.ToolbarIconSet.allCases[max(toolbarIconsPopup.indexOfSelectedItem, 0)]
             p.foldMarkStyle = Preferences.FoldMarkStyle.allCases[max(foldStylePopup.indexOfSelectedItem, 0)]
             p.showLineNumbers = lineNumbersBox.state == .on
             p.lineNumberDynamicWidth = dynamicWidthBox.state == .on
@@ -222,6 +226,9 @@ final class PreferencesController: NSWindowController {
         text.split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }.filter { (1...8192).contains($0) }
     }
 
+    /// Preferences.ToolbarIconSet's cases, in order; the Fluent names are Notepad++'s.
+    static let toolbarIconTitles = ["SF Symbols (macOS)", "Fluent UI", "Filled Fluent UI"]
+
     // MARK: - Layout
 
     private func build() {
@@ -237,6 +244,7 @@ final class PreferencesController: NSWindowController {
         popup(currentLinePopup, ["None", "Highlight Background", "Frame"])
         popup(caretWidthPopup, Self.caretWidths)
         popup(wrapPopup, ["Default", "Aligned", "Indent"])
+        popup(toolbarIconsPopup, Self.toolbarIconTitles)
         popup(foldStylePopup, ["Simple", "Arrow", "Circle tree", "Box tree", "None"])
         indentLanguagePopup.addItems(withTitles: [Self.defaultIndentTitle] + languages.dropFirst().map(\.title))
         indentLanguagePopup.target = self
@@ -281,6 +289,9 @@ final class PreferencesController: NSWindowController {
             tabView.addTabViewItem(item)
         }
 
+        // Notepad++ puts Toolbar right after General; showing and customizing it are in the View menu, as on the Mac.
+        page("Toolbar", [grid([[label("Icons:"), toolbarIconsPopup]]),
+                         label("Show, hide or rearrange the toolbar from the View menu.")])
         page("New Document", [grid([[label("Format (Line ending):"), lineEndingPopup], [label("Encoding:"), encodingPopup],
                                     [label("Default language:"), languagePopup]])])
         page("Editing", [grid([[label("Current Line Indicator:"), currentLinePopup], [label("Frame width:"), frameWidthField],

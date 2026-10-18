@@ -18,6 +18,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     private(set) var scrollSync = ScrollSync()
     private var isSyncingScroll = false
     private var nextUntitledNumber = 1
+    /// Notepad++'s toolbar (MAC-69).
+    let mainToolbar = MainToolbar(iconSet: Preferences.current.toolbarIconSet)
     /// Suppresses session writes while the session itself is being reopened.
     private var isRestoring = false
 
@@ -51,6 +53,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         WindowPlacement.place(window)
         window.tabbingMode = .disallowed  // the document tabs are MacPad++'s own, not macOS window tabs
         super.init(window: window)
+        // Under the title, full width, as Notepad++'s toolbar sits under its menu bar (MAC-69).
+        window.toolbar = mainToolbar.toolbar
+        window.toolbarStyle = .expanded
 
         splitView.translatesAutoresizingMaskIntoConstraints = false
         statusBar.translatesAutoresizingMaskIntoConstraints = false
@@ -128,6 +133,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         // Preferences apply at once to every open editor (MAC-38), as Notepad++'s do.
         preferencesObserver = NotificationCenter.default.addObserver(forName: Preferences.didChange, object: nil, queue: .main) { [weak self] _ in
             self?.applyTheme()
+            self?.mainToolbar.setIconSet(Preferences.current.toolbarIconSet)
         }
         for (view, pane) in panes.enumerated() {
             pane.tabBar.onSelect = { [weak self] index in self?.selectTab(at: index, inView: view) }
@@ -1275,5 +1281,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
                 }
             }
         }
+    }
+}
+
+extension MainWindowController: ToolbarCommandValidating {
+    /// Notepad++'s toolbar greys Save while the document is unchanged (MAC-69); the menu item keeps
+    /// the Mac behaviour and stays enabled.
+    func validateToolbarCommand(_ action: Selector) -> Bool {
+        action == #selector(saveDocument(_:)) ? activeTab?.isModified == true : true
     }
 }
