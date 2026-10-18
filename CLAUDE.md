@@ -37,6 +37,10 @@ knows, but as a real Mac app — not Wine (tried, rejected as terrible), not a l
   machine has a gitignored `Config/Local.xcconfig` with `APP_DISPLAY_NAME = Notepad++` (personal use
   only, 2026-10-15) — so `.pkg` files built here show Notepad++ and must not be shared. Info.plist keeps
   MacPad++: Finder shows the localized name only while that matches the `.app` file name.
+  MAC-67: `make-pkg.sh` names the installer and its title after the built app's name
+  (`scripts/display-name.sh`), so here it builds `dist/Notepad++-<v>.pkg`. Debug builds are always
+  "MacPad++ Debug" (`Config/Debug.xcconfig`): test hosts once showed as Notepad++ in the Dock and
+  looked like the user's editor stuck.
 - At build time a script phase copies `langs.model.xml`, `stylers.model.xml` and `themes/` from
   vendor/ into the app's `Resources/npp/`.
 
@@ -194,12 +198,14 @@ macOS 26.6 on Apple Silicon (arm64), Xcode 27.0, Swift 6.4. Progress file for th
   Open the ticket before the work starts, close it with a description of what actually shipped.
 - **Testing:** every feature ships with full unit-test coverage; every bug fix ships with a
   regression test. Extract logic out of AppKit views where needed so it can be tested headless.
-- **Versioning:** the line starts at `0.1.0` (`MARKETING_VERSION` in `project.yml`). At this stage
-  every release bumps the **patch** only.
+- **Versioning:** the line started at `0.1.0`; the user set it to **`1.0.0`** on 2026-10-18
+  (`MARKETING_VERSION` in `project.yml`). Every release still bumps the **patch** only (1.0.1, 1.0.2, …).
 - **`deploy patch`** means, in order: run the unit tests (a failure stops everything) → bump the
   patch → update and close the Jira tickets → commit and push → build the `.pkg` installer into `dist/`
-  for every requested platform (currently macOS arm64 only; `.pkg`, never `.dmg`) → ask the user whether to install it.
+  for every requested platform (currently macOS arm64 only; `.pkg`, never `.dmg`) → publish it as GitHub
+  release `v<version>` with `scripts/github-release.sh <pkg> <version>`, which deletes every older release
+  so only the newest one stays (MAC-68, user's rule 2026-10-18; tags stay) → ask the user whether to install it.
 - **Installing** (when the user says yes): it needs their admin password / Touch ID, so open the `.pkg`
-  in Installer (`open dist/MacPad++-<v>.pkg`) for them to confirm — never try `sudo installer`. If
+  in Installer (`open dist/<name>-<v>.pkg` — `Notepad++-<v>.pkg` on this Mac, MAC-67) for them to confirm — never try `sudo installer`. If
   MacPad++ is running, **ask the user whether to close it** first (it may hold unsaved work); the
   package's must-close prompt asks again in Installer. Never quit it unasked.
