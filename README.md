@@ -4,7 +4,7 @@ A native macOS port of [Notepad++](https://notepad-plus-plus.org/) v8.9.8.1: Swi
 the same Scintilla/Lexilla editing engine Notepad++ uses, reading Notepad++'s own language, styler
 and theme files unchanged. Not affiliated with the Notepad++ project.
 
-Current release: **1.0.1** (milestones 1–7 done; notarization pending). Each release's installer is
+Current release: **1.1.0** (milestones 1–7 done; notarization pending). Each release's installer is
 on the repository's GitHub Releases page (only the newest is kept).
 See `CLAUDE.md` for the roadmap and known gaps.
 

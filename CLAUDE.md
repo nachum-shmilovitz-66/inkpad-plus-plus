@@ -204,8 +204,9 @@ macOS 26.6 on Apple Silicon (arm64), Xcode 27.0, Swift 6.4. Progress file for th
   Open the ticket before the work starts, close it with a description of what actually shipped.
 - **Testing:** every feature ships with full unit-test coverage; every bug fix ships with a
   regression test. Extract logic out of AppKit views where needed so it can be tested headless.
-- **Versioning:** the line started at `0.1.0`; the user set it to **`1.0.0`** on 2026-10-18
-  (`MARKETING_VERSION` in `project.yml`). Every release still bumps the **patch** only (1.0.1, 1.0.2, …).
+- **Versioning:** the line started at `0.1.0`; the user set it to **`1.0.0`** and then **`1.1.0`** on
+  2026-10-18 (`MARKETING_VERSION` in `project.yml`; MAC-71). Every release still bumps the **patch** only
+  (1.1.1, 1.1.2, …). When the user sets a version, the next deploy patch releases that version as is.
 - **`deploy patch`** means, in order: run the unit tests (a failure stops everything) → bump the
   patch → update and close the Jira tickets → commit and push → build the `.pkg` installer into `dist/`
   for every requested platform (currently macOS arm64 only; `.pkg`, never `.dmg`) → publish it as GitHub
