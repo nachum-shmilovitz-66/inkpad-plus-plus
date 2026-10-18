@@ -1,0 +1,7 @@
+// MAC-67: Debug builds — the copies that unit tests and manual checks launch — never carry the
+// visible name of the installed app (which Config/Local.xcconfig may set), so a test host in the
+// Dock cannot be mistaken for the user's own editor (on 2026-10-18 one was, and looked "stuck"
+// while XCTest drove it). Their bundle id differs already (app.macpad.MacPad.debug).
+#include "App.xcconfig"
+
+APP_DISPLAY_NAME = MacPad++ Debug

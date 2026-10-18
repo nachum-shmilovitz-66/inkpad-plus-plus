@@ -18,7 +18,7 @@ targets:
     platform: macOS
     # MAC-66: APP_DISPLAY_NAME (the visible name), overridable in a gitignored Config/Local.xcconfig.
     configFiles:
-      Debug: Config/App.xcconfig
+      Debug: Config/Debug.xcconfig
       Release: Config/App.xcconfig
     sources:
       - path: MacPad/Sources

@@ -18,6 +18,7 @@
 # Usage: scripts/make-pkg.sh             (macOS, Xcode, XcodeGen)
 #        DIST=<dir> scripts/make-pkg.sh  (write the package somewhere other than dist/)
 # Older MacPad++-*.pkg files in the output folder are deleted once the new one is built.
+# The file and the installer title carry the app's visible name (MAC-67): <name>-<version>.pkg.
 set -euo pipefail
 
 ROOT=${0:A:h:h}
@@ -40,6 +41,9 @@ xcodebuild -quiet -project MacPad++.xcodeproj -scheme MacPad++ -configuration Re
   -derivedDataPath "$DD" build
 APP=$DD/Build/Products/Release/MacPad++.app
 VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$APP/Contents/Info.plist")
+# MAC-67: the installer's title and file name follow the app's visible name (MAC-66) — MacPad++
+# unless Config/Local.xcconfig overrides it. Identifiers and the payload path never change.
+NAME=$("$ROOT/scripts/display-name.sh" "$APP")
 
 IDENTITY=${SIGN_IDENTITY:-$(security find-identity -v -p codesigning \
   | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -1)}
@@ -96,14 +100,14 @@ pkgbuild --quiet \
 
 DIST=${DIST:-$ROOT/dist}
 mkdir -p "$DIST"
-PKG=$DIST/MacPad++-$VERSION.pkg
+PKG=$DIST/$NAME-$VERSION.pkg
 rm -f "$PKG"
 
 # Distribution file: synthesized from the component, then MacPad++ is declared must-close so
 # Installer asks to close a running copy first.
 DISTXML=$ROOT/build/MacPad++-distribution.xml
 productbuild --quiet --synthesize --package "$COMPONENT" "$DISTXML"
-python3 -I - "$DISTXML" <<'PY'
+python3 -I - "$DISTXML" "$NAME" <<'PY'
 import sys, xml.etree.ElementTree as ET
 path = sys.argv[1]
 tree = ET.parse(path)
@@ -120,8 +124,10 @@ if root.find("allowed-os-versions") is None:
     allowed = ET.Element("allowed-os-versions")
     ET.SubElement(allowed, "os-version", min="13.0")
     root.insert(0, allowed)
-if root.find("title") is None:
-    title = ET.Element("title"); title.text = "MacPad++"; root.insert(0, title)
+title = root.find("title")
+if title is None:
+    title = ET.Element("title"); root.insert(0, title)
+title.text = sys.argv[2]  # "Install <name>", "Welcome to the <name> Installer" (MAC-67)
 tree.write(path, encoding="utf-8", xml_declaration=True)
 PY
 grep -q '<app id="app.macpad.MacPad"' "$DISTXML" || { echo "must-close missing from $DISTXML" >&2; exit 1; }
@@ -150,7 +156,8 @@ fi
 
 # Only the newest installer is kept (the user's rule, 2026-10-13): older versions are rebuilt from
 # git when needed. Runs last, so a failed build never deletes the previous good package.
-for old in "$DIST"/MacPad++-*.pkg(N); do
+olds=("$DIST"/MacPad++-*.pkg(N) "$DIST"/$NAME-*.pkg(N))  # either name (MAC-67)
+for old in ${(u)olds}; do
   [[ $old == "$PKG" ]] || { rm -f "$old"; echo "== removed older installer: ${old:t}"; }
 done
 

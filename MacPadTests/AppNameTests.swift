@@ -61,7 +61,7 @@ final class AppNameTests: XCTestCase {
             XCTAssertTrue(titles.contains("\(title) \(AppName.display)"), "\(title) item in \(titles)")
         }
         XCTAssertTrue(titles.contains("Uninstall \(AppName.display)…"))
-        XCTAssertFalse(titles.contains { $0.contains("MacPad++") && AppName.display != "MacPad++" })
+        XCTAssertFalse(titles.contains { $0.contains("MacPad++") && !$0.contains(AppName.display) }, "no hard-coded name")
     }
 
     func testUserFacingTextUsesTheDisplayName() {
@@ -79,6 +79,17 @@ final class AppNameTests: XCTestCase {
         XCTAssertTrue(ignore.split(separator: "\n").contains("Config/Local.xcconfig"))
         let plist = try String(contentsOf: repo.appendingPathComponent("MacPad/Info.plist"), encoding: .utf8)
         XCTAssertFalse(plist.contains("Notepad++</string>"))
+    }
+
+    /// MAC-67: a Debug build (the test host) is never named like the installed app, whatever
+    /// Config/Local.xcconfig says — a test copy in the Dock looked like the user's editor, "stuck".
+    func testDebugBuildsHaveTheirOwnName() throws {
+        let config = try String(contentsOf: repo.appendingPathComponent("Config/Debug.xcconfig"), encoding: .utf8)
+        XCTAssertTrue(config.contains("#include \"App.xcconfig\""))
+        XCTAssertTrue(config.contains("\nAPP_DISPLAY_NAME = MacPad++ Debug\n"))
+        #if DEBUG
+        XCTAssertEqual(AppName.display, "MacPad++ Debug")
+        #endif
     }
 
     /// Internal identifiers never follow the visible name.
