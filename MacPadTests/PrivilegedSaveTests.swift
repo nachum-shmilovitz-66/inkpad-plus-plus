@@ -156,7 +156,7 @@ final class PrivilegedSaveScriptTests: XCTestCase {
         var seen: String?
         try PrivilegedSave.save(Data("x".utf8), to: dir.appendingPathComponent("hosts"), runner: ShellRunner(prompts: { seen = $0 }))
         let resolved = dir.appendingPathComponent("hosts").resolvingSymlinksInPath().path
-        XCTAssertEqual(seen, "MacPad++ needs administrator rights to save \u{201C}\(resolved)\u{201D}.", "the full path (MAC-55)")
+        XCTAssertEqual(seen, "\(AppName.display) needs administrator rights to save \u{201C}\(resolved)\u{201D}.", "the full path (MAC-55)")
     }
 
     func testTheAppleScriptCompiles() {

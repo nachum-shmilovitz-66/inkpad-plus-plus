@@ -39,22 +39,22 @@ enum MainMenu {
     }
 
     private static func appMenu() -> NSMenu {
-        let menu = NSMenu(title: "MacPad++")
-        menu.addItem(item("About MacPad++", #selector(NSApplication.orderFrontStandardAboutPanel(_:))))
+        let menu = NSMenu(title: AppName.display)
+        menu.addItem(item("About \(AppName.display)", #selector(NSApplication.orderFrontStandardAboutPanel(_:))))
         menu.addItem(.separator())
         menu.addItem(item("Settings…", #selector(AppDelegate.showPreferences(_:)), ","))
         menu.addItem(.separator())
-        menu.addItem(item("Uninstall MacPad++…", #selector(AppDelegate.uninstallMacPad(_:))))
+        menu.addItem(item("Uninstall \(AppName.display)…", #selector(AppDelegate.uninstallMacPad(_:))))
         menu.addItem(.separator())
         let services = NSMenu(title: "Services")
         menu.addItem(submenu(services))
         NSApp.servicesMenu = services
         menu.addItem(.separator())
-        menu.addItem(item("Hide MacPad++", #selector(NSApplication.hide(_:)), "h"))
+        menu.addItem(item("Hide \(AppName.display)", #selector(NSApplication.hide(_:)), "h"))
         menu.addItem(item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]))
         menu.addItem(item("Show All", #selector(NSApplication.unhideAllApplications(_:))))
         menu.addItem(.separator())
-        menu.addItem(item("Quit MacPad++", #selector(NSApplication.terminate(_:)), "q"))
+        menu.addItem(item("Quit \(AppName.display)", #selector(NSApplication.terminate(_:)), "q"))
         return menu
     }
 
@@ -162,7 +162,7 @@ enum MainMenu {
 
     /// Edit › Read-Only in MacPad++ (Notepad++'s user read-only, not the file's).
     private static func readOnlyMenu() -> NSMenu {
-        let menu = NSMenu(title: "Read-Only in MacPad++")
+        let menu = NSMenu(title: "Read-Only in \(AppName.display)")
         let action = #selector(MainWindowController.readOnlyCommand(_:))
         menu.addItem(tagged("Read-Only on Current Document", action, 0))
         menu.addItem(tagged("Read-Only for All Documents", action, 1))

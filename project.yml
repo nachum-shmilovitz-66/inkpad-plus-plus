@@ -16,6 +16,10 @@ targets:
   MacPad++:
     type: application
     platform: macOS
+    # MAC-66: APP_DISPLAY_NAME (the visible name), overridable in a gitignored Config/Local.xcconfig.
+    configFiles:
+      Debug: Config/App.xcconfig
+      Release: Config/App.xcconfig
     sources:
       - path: MacPad/Sources
       - path: MacPad/Resources
@@ -77,6 +81,16 @@ targets:
           cp "$NPP/src/langs.model.xml" "$NPP/src/stylers.model.xml" "$DEST/"
           rsync -a --delete "$NPP/installer/themes/" "$DEST/themes/"
           rsync -a --delete "$NPP/installer/functionList/" "$DEST/functionList/"
+      - name: Localized display name
+        basedOnDependencyAnalysis: false
+        script: |
+          # MAC-66: Finder, the Dock and Spotlight show the file name (MacPad++.app) unless the
+          # bundle has a localized name (LSHasLocalizedDisplayName); this one is APP_DISPLAY_NAME.
+          set -e
+          DEST="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/en.lproj"
+          mkdir -p "$DEST"
+          NAME=$(printf '%s' "$APP_DISPLAY_NAME" | sed 's/[\\"]/\\&/g')
+          printf 'CFBundleDisplayName = "%s";\nCFBundleName = "%s";\n' "$NAME" "$NAME" > "$DEST/InfoPlist.strings"
 
   # MAC-24: privileged helper (a launchd daemon installed by postinstall); runs as root, writes one
   # file per request, only for MacPad++ signed with the team's Developer ID and only after an

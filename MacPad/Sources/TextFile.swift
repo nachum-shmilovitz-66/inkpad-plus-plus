@@ -74,7 +74,7 @@ enum TextFile {
 
     struct TooLarge: LocalizedError, Equatable {
         let size: Int64
-        var errorDescription: String? { "The file is too big to be opened by MacPad++ (\(ByteCountFormatter.string(fromByteCount: size, countStyle: .file)))." }
+        var errorDescription: String? { "The file is too big to be opened by \(AppName.display) (\(ByteCountFormatter.string(fromByteCount: size, countStyle: .file)))." }
     }
 
     /// Reads a whole file, refusing one larger than `maximumOpenSize`.

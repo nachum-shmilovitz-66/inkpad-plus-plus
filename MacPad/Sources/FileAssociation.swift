@@ -66,7 +66,7 @@ final class FileAssociation {
             switch self {
             case .invalidExtension(let ext): "\"\(ext)\" is not a file extension."
             case .unknownType(let ext): "macOS has no file type for \"\(ext)\"."
-            case .noAppToRestore(let ext): "No app was found to open \"\(ext)\" files instead of MacPad++."
+            case .noAppToRestore(let ext): "No app was found to open \"\(ext)\" files instead of \(AppName.display)."
             }
         }
     }
@@ -270,7 +270,7 @@ final class FileAssociationPane: NSView, NSTableViewDataSource, NSTableViewDeleg
         registerButton.action = #selector(registerClicked(_:))
         unregisterButton.target = self
         unregisterButton.action = #selector(unregisterClicked(_:))
-        registerButton.toolTip = "Make MacPad++ the default app for this extension"
+        registerButton.toolTip = "Make \(AppName.display) the default app for this extension"
         unregisterButton.toolTip = "Give this extension back to the app that had it before"
         availableTable.doubleAction = #selector(registerClicked(_:))
         availableTable.target = self
@@ -292,7 +292,7 @@ final class FileAssociationPane: NSView, NSTableViewDataSource, NSTableViewDeleg
         lists.alignment = .top
         lists.spacing = 12
         let note = NSTextField(wrappingLabelWithString:
-            "Registering makes MacPad++ the app that opens these files from Finder. macOS may ask you to confirm. "
+            "Registering makes \(AppName.display) the app that opens these files from Finder. macOS may ask you to confirm. "
             + "Unregistering gives the extension back to the app that had it before.")
         note.textColor = .secondaryLabelColor
         note.font = .systemFont(ofSize: NSFont.smallSystemFontSize)

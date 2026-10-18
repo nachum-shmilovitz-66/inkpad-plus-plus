@@ -79,7 +79,7 @@ enum PrivilegedSave {
 
     /// The full path, so the administrator sees exactly which file is written (MAC-55).
     static func prompt(for target: URL) -> String {
-        "MacPad++ needs administrator rights to save \u{201C}\(target.path)\u{201D}."
+        "\(AppName.display) needs administrator rights to save \u{201C}\(target.path)\u{201D}."
     }
 
     /// Writes `data` to `target` as root. Symlinks are resolved first, so a linked file is updated

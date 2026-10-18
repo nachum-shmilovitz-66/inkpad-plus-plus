@@ -32,6 +32,11 @@ knows, but as a real Mac app — not Wine (tried, rejected as terrible), not a l
   `swift scripts/make-icon.swift` (an original design; never use Notepad++'s chameleon logo).
   Edit the script and regenerate rather than editing the PNGs.
 - `MacPad/Info.plist`'s document types are generated from `langs.model.xml` by `swift scripts/gen-file-types.swift` (MAC-50; `--check` runs in make-pkg.sh). Regenerate rather than editing them.
+- Visible app name (MAC-66): `APP_DISPLAY_NAME` in `Config/App.xcconfig` (MacPad++), written to
+  `en.lproj/InfoPlist.strings` by a build phase; UI strings use `AppName.display`. The user's own
+  machine has a gitignored `Config/Local.xcconfig` with `APP_DISPLAY_NAME = Notepad++` (personal use
+  only, 2026-10-15) — so `.pkg` files built here show Notepad++ and must not be shared. Info.plist keeps
+  MacPad++: Finder shows the localized name only while that matches the `.app` file name.
 - At build time a script phase copies `langs.model.xml`, `stylers.model.xml` and `themes/` from
   vendor/ into the app's `Resources/npp/`.
 

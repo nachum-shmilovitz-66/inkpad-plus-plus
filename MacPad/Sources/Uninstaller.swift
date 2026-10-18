@@ -37,12 +37,12 @@ struct Uninstaller {
         return "/bin/sh \(PrivilegedSave.shellQuote(scriptURL.path)) \(PrivilegedSave.shellQuote(appURL.path))"
     }
 
-    static let prompt = "MacPad++ needs administrator rights to uninstall itself."
+    static let prompt = "\(AppName.display) needs administrator rights to uninstall itself."
 
     /// Runs the uninstaller; `removeSettings` also deletes the user's MacPad++ settings
     /// (Application Support/MacPad++ and the preferences), which root's script leaves alone.
     func run(removeSettings: Bool) throws {
-        guard isAvailable, let command = command() else { throw PrivilegedSaveError.failed("this copy of MacPad++ cannot uninstall itself") }
+        guard isAvailable, let command = command() else { throw PrivilegedSaveError.failed("this copy of \(AppName.display) cannot uninstall itself") }
         try runner.run(shellScript: command, prompt: Self.prompt)
         if removeSettings {
             try? FileManager.default.removeItem(at: supportDirectory)
@@ -55,8 +55,8 @@ struct Uninstaller {
     @MainActor
     static func confirm() -> Bool? {
         let alert = NSAlert()
-        alert.messageText = "Uninstall MacPad++?"
-        alert.informativeText = "This removes MacPad++ from Applications, its helper for administrator saves, "
+        alert.messageText = "Uninstall \(AppName.display)?"
+        alert.informativeText = "This removes \(AppName.display) from Applications, its helper for administrator saves, "
             + "the macpad command-line tool and the installer receipt, then quits. "
             + "You are asked about unsaved documents first."
         alert.alertStyle = .warning

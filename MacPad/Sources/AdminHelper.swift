@@ -104,7 +104,7 @@ final class XPCAdminHelper: AdminHelperService {
             DispatchQueue.main.async { completion(result) }
         }
         let proxy = connection.remoteObjectProxyWithErrorHandler { finish(.failed($0.localizedDescription)) } as? MacPadHelperProtocol
-        guard let proxy else { finish(.failed("Could not reach MacPad++'s helper.")); return }
+        guard let proxy else { finish(.failed("Could not reach \(AppName.display)'s helper.")); return }
         proxy.install(data, atPath: path, authorization: authorization.external) { reply, message in
             finish(AdminHelperResult(reply, message))
         }

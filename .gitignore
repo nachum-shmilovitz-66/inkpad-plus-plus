@@ -10,3 +10,5 @@ MacPad++.xcodeproj/
 # Installers from scripts/make-dmg.sh
 dist/
 *.profraw
+# Personal build settings (MAC-66), e.g. APP_DISPLAY_NAME
+Config/Local.xcconfig

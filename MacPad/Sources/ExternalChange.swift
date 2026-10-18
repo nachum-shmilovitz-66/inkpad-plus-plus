@@ -17,7 +17,7 @@ enum ExternalChangePrompt: Equatable {
         case .reload(let losesEdits):
             return ("\"\((path as NSString).lastPathComponent)\" was modified by another program",
                     losesEdits
-                        ? "\(path)\n\nDo you want to reload it and lose the changes made in MacPad++?"
+                        ? "\(path)\n\nDo you want to reload it and lose the changes made in \(AppName.display)?"
                         : "\(path)\n\nDo you want to reload it?",
                     "Reload", losesEdits ? "Keep My Changes" : "Don't Reload")
         case .keepDeleted:
