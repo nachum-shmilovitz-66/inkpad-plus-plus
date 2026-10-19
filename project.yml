@@ -97,6 +97,17 @@ targets:
           NAME=$(printf '%s' "$APP_DISPLAY_NAME" | sed 's/[\\"]/\\&/g')
           printf 'CFBundleDisplayName = "%s";\nCFBundleName = "%s";\n' "$NAME" "$NAME" > "$DEST/InfoPlist.strings"
 
+    postBuildScripts:
+      - name: Debug builds open no documents
+        basedOnDependencyAnalysis: false
+        script: |
+          # MAC-74: Xcode registers every app it builds with Launch Services, so a Debug build (the
+          # test host) showed up in Finder's Open With as "MacPad++ Debug". Without document types it
+          # never does. Release builds keep them.
+          if [ "$CONFIGURATION" = "Debug" ]; then
+            /usr/libexec/PlistBuddy -c "Delete :CFBundleDocumentTypes" "$TARGET_BUILD_DIR/$INFOPLIST_PATH" 2>/dev/null || true
+          fi
+
   # MAC-24: privileged helper (a launchd daemon installed by postinstall); runs as root, writes one
   # file per request, only for MacPad++ signed with the team's Developer ID and only after an
   # administrator authorized that write (MAC-55).

@@ -74,7 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard mainWindow.hasDirtyTabs, !isUninstalling else { return .terminateNow }
+        guard mainWindow.needsQuitConfirmation, !isUninstalling else { return .terminateNow }  // asked once (MAC-74)
         mainWindow.showWindow(nil)
         mainWindow.confirmDiscardAll { sender.reply(toApplicationShouldTerminate: $0) }
         return .terminateLater

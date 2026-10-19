@@ -1181,8 +1181,26 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     /// Closing the window means closing every document, so each unsaved one gets its prompt.
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard hasDirtyTabs else { return true }
-        confirmDiscardAll { [weak self] ok in if ok { self?.window?.close() } }
+        confirmDiscardAll { [weak self] ok in if ok { self?.closeAfterConfirmation() } }
         return false
+    }
+
+    /// MAC-74: the prompts were answered; the app quits right after the last window closes, and
+    /// must not ask about the same documents again.
+    private(set) var discardConfirmed = false
+
+    /// Whether quitting has to ask about unsaved documents first.
+    var needsQuitConfirmation: Bool { hasDirtyTabs && !discardConfirmed }
+
+    func closeAfterConfirmation() {
+        discardConfirmed = true
+        window?.close()
+    }
+
+    /// Shown again (the Dock, a reopened file): new edits get asked about again.
+    override func showWindow(_ sender: Any?) {
+        discardConfirmed = false
+        super.showWindow(sender)
     }
 
     /// Asks about each unsaved document in turn, as Notepad++ does on exit.
