@@ -50,6 +50,7 @@ final class PreferencesController: NSWindowController {
     let recentFilesField = NSTextField()
     let sqlBackslashBox = NSButton(checkboxWithTitle: "Treat backslash as escape character for SQL", target: nil, action: nil)
     let scaleFontsBox = NSButton(checkboxWithTitle: "Scale Notepad++ font sizes for macOS (× 4/3)", target: nil, action: nil)
+    let autoUpdateBox = NSButton(checkboxWithTitle: "Check for updates automatically (once a day)", target: nil, action: nil)
     // File Association (MAC-51)
     private(set) lazy var fileAssociationPane: FileAssociationPane = {
         let pane = FileAssociationPane()
@@ -140,6 +141,7 @@ final class PreferencesController: NSWindowController {
         recentFilesField.integerValue = p.maxRecentFiles
         sqlBackslashBox.state = p.sqlBackslashEscapes ? .on : .off
         scaleFontsBox.state = p.scaleWindowsFontSizes ? .on : .off
+        autoUpdateBox.state = p.checkForUpdatesAutomatically ? .on : .off
     }
 
     /// The language chosen on the Indentation page (nil = [Default]).
@@ -197,6 +199,7 @@ final class PreferencesController: NSWindowController {
             p.maxRecentFiles = min(max(recentFilesField.integerValue, 0), 30)
             p.sqlBackslashEscapes = sqlBackslashBox.state == .on
             p.scaleWindowsFontSizes = scaleFontsBox.state == .on
+            p.checkForUpdatesAutomatically = autoUpdateBox.state == .on
         }
         load()
     }
@@ -251,7 +254,7 @@ final class PreferencesController: NSWindowController {
         indentLanguagePopup.action = #selector(indentLanguageChosen(_:))
         for control in [virtualSpaceBox, scrollBeyondBox, dragDropBox, multiEditBox, eolRoundedBox, lineNumbersBox, dynamicWidthBox,
                         bookmarkMarginBox, edgeBackgroundBox, fillFindBox, selectWordBox, staysOpenBox, confirmReplaceBox,
-                        replaceStopsBox, sqlBackslashBox, scaleFontsBox, blinkSlider] as [NSControl] {
+                        replaceStopsBox, sqlBackslashBox, scaleFontsBox, autoUpdateBox, blinkSlider] as [NSControl] {
             control.target = self
             control.action = #selector(controlChanged(_:))
         }
@@ -308,7 +311,7 @@ final class PreferencesController: NSWindowController {
                            fillFindBox, grid([[label("Max Characters to Auto-Fill Find Field from Selection:"), fillMaxField]]),
                            selectWordBox, staysOpenBox, confirmReplaceBox, replaceStopsBox])
         page("File Association", [fileAssociationPane])
-        page("Misc.", [grid([[label("Recent Files: max. number of entries:"), recentFilesField]]), sqlBackslashBox, scaleFontsBox])
+        page("Misc.", [grid([[label("Recent Files: max. number of entries:"), recentFilesField]]), sqlBackslashBox, scaleFontsBox, autoUpdateBox])
 
         tabView.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(tabView)

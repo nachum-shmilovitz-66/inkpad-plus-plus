@@ -81,6 +81,10 @@ struct Preferences: Codable, Equatable {
     enum ToolbarIconSet: String, Codable, CaseIterable { case sfSymbols, fluent, filledFluent }
     var toolbarIconSet = ToolbarIconSet.sfSymbols
 
+    // MARK: Updates (MAC-75)
+    /// Notepad++'s Misc. › auto-updater: look for a new release at launch, at most once a day.
+    var checkForUpdatesAutomatically = true
+
     init() {}
 
     /// Settings saved by an older version keep their values; newer ones take their defaults.
@@ -122,6 +126,7 @@ struct Preferences: Codable, Equatable {
         maxRecentFiles = v(.maxRecentFiles, d.maxRecentFiles)
         scaleWindowsFontSizes = v(.scaleWindowsFontSizes, d.scaleWindowsFontSizes)
         toolbarIconSet = v(.toolbarIconSet, d.toolbarIconSet)
+        checkForUpdatesAutomatically = v(.checkForUpdatesAutomatically, d.checkForUpdatesAutomatically)
     }
 
     /// The tab setting a language gets: the user's override, else langs.model.xml's, else the default.

@@ -187,6 +187,16 @@ UDL, Document List) have a nil action and stay hidden. Each button validates lik
 (`ToolbarValidation`); Save is grey while unmodified (`validateToolbarCommand`). Icons: SF Symbols, or
 Notepad++'s Fluent UI set copied from vendor `icons/{light,dark}/toolbar` (Settings › Toolbar).
 
+Check for Updates (MAC-75): app menu › Check for Updates…, plus an automatic check at launch and every
+few hours, at most daily (Settings › Misc.; never in Debug builds or tests). `Updater.swift` is the
+headless logic (semantic versions, GitHub's `releases/latest` JSON, asset selection, `pkgutil` signature
+and Distribution checks, injected network and tools); `UpdateController.swift` is the AppKit side. Only
+`MacPad++-<v>.pkg` from this repository's releases is downloaded (into a private 0700 temp folder), checked
+for size, GitHub's sha256 digest, a Developer ID Installer signature of team 96Y4LX7FVB chained to Apple
+Root CA, and a Distribution titled MacPad++ installing app.macpad.MacPad <v>; then it opens in Installer
+(must-close quits the app). Builds not named MacPad++ only show the update and its release page
+(`UpdateInstallPolicy`). The check needs the repository to be public (a private one answers 404).
+
 MAC-25 security review: **done** (2026-10-15) — report in `docs/security/`; fixes MAC-55…MAC-65
 (helper authorizes each write itself, helper outside the bundle, descriptor-based root writes,
 SafeXML, symlink-safe saves and Find in Files, vendor pinned + hardened, patched Raku/Perl lexers
@@ -208,10 +218,13 @@ macOS 26.6 on Apple Silicon (arm64), Xcode 27.0, Swift 6.4. Progress file for th
   2026-10-18 (`MARKETING_VERSION` in `project.yml`; MAC-71). Every release still bumps the **patch** only
   (1.1.1, 1.1.2, …). When the user sets a version, the next deploy patch releases that version as is.
 - **`deploy patch`** means, in order: run the unit tests (a failure stops everything) → bump the
-  patch → update and close the Jira tickets → commit and push → build the `.pkg` installer into `dist/`
-  for every requested platform (currently macOS arm64 only; `.pkg`, never `.dmg`) → publish it as GitHub
-  release `v<version>` with `scripts/github-release.sh <pkg> <version>`, which deletes every older release
-  so only the newest one stays (MAC-68, user's rule 2026-10-18; tags stay) → ask the user whether to install it.
+  patch → update and close the Jira tickets → commit and push → build the `.pkg` installers into `dist/`
+  for every requested platform (currently macOS arm64 only; `.pkg`, never `.dmg`) — on this Mac
+  `make-pkg.sh` builds two: the personal `Notepad++-<v>.pkg` and the public `MacPad++-<v>.pkg` (MAC-75) →
+  publish **`MacPad++-<v>.pkg`** (never the Notepad++ one) as GitHub release `v<version>` with
+  `scripts/github-release.sh dist/MacPad++-<v>.pkg <version>`, which writes the notes from the commits
+  since the previous release and deletes every older release so only the newest one stays (MAC-68,
+  user's rule 2026-10-18; tags stay) → ask the user whether to install it (the personal package).
 - **Installing** (when the user says yes): it needs their admin password / Touch ID, so open the `.pkg`
   in Installer (`open dist/<name>-<v>.pkg` — `Notepad++-<v>.pkg` on this Mac, MAC-67) for them to confirm — never try `sudo installer`. If
   MacPad++ is running, **ask the user whether to close it** first (it may hold unsaved work); the

@@ -32,6 +32,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         mainWindow.showWindow(nil)
         mainWindow.restoreWorkspace()
         NSApp.activate(ignoringOtherApps: true)
+        UpdateController.shared.startAutomaticChecks()  // MAC-75
+    }
+
+    @IBAction func checkForUpdates(_ sender: Any?) {
+        UpdateController.shared.check(userInitiated: true)
     }
 
     static func shouldRestoreSession(arguments: [String]) -> Bool { !arguments.contains("-nosession") }

@@ -67,9 +67,19 @@ final class PackageNameTests: XCTestCase {
         XCTAssertTrue(script.contains("PKG=$DIST/$NAME-$VERSION.pkg"))
         XCTAssertTrue(script.contains("python3 -I - \"$DISTXML\" \"$NAME\""))
         XCTAssertTrue(script.contains("title.text = sys.argv[2]"))
-        XCTAssertTrue(script.contains("olds=(\"$DIST\"/MacPad++-*.pkg(N) \"$DIST\"/$NAME-*.pkg(N))"))
+        XCTAssertTrue(script.contains("olds=(\"$DIST\"/MacPad++-*.pkg(N) \"$DIST\"/$PERSONAL_NAME-*.pkg(N))"))
+        XCTAssertTrue(script.contains("(( ${BUILT[(Ie)$old]} )) || { rm -f \"$old\""), "both packages of this version stay")
         // Identifiers and the payload path stay MacPad.
         XCTAssertTrue(script.contains("--identifier app.macpad.MacPad \\"))
         XCTAssertTrue(script.contains("\"$STAGE/MacPad++.app\""))
+    }
+
+    /// MAC-75: a personal build also gets the public MacPad++ package — the only one released.
+    func testMakePkgBuildsThePublicPackageForAPersonalBuild() throws {
+        let script = try String(contentsOf: repo.appendingPathComponent("scripts/make-pkg.sh"), encoding: .utf8)
+        XCTAssertTrue(script.contains("-derivedDataPath \"$DD\" build ${override:+APP_DISPLAY_NAME=$override}"))
+        XCTAssertTrue(script.contains("if [[ $NAME != MacPad++ && ${PUBLIC_PKG:-1} != 0 ]]; then"))
+        XCTAssertTrue(script.contains("build_package MacPad++ \"$ROOT/build/dd-release-public\""))
+        XCTAssertTrue(script.contains("[[ $NAME == MacPad++ ]] || { echo \"the public package is named $NAME, not MacPad++\""))
     }
 }

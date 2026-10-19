@@ -41,6 +41,7 @@ enum MainMenu {
     private static func appMenu() -> NSMenu {
         let menu = NSMenu(title: AppName.display)
         menu.addItem(item("About \(AppName.display)", #selector(NSApplication.orderFrontStandardAboutPanel(_:))))
+        menu.addItem(item("Check for Updates…", #selector(AppDelegate.checkForUpdates(_:))))  // MAC-75
         menu.addItem(.separator())
         menu.addItem(item("Settings…", #selector(AppDelegate.showPreferences(_:)), ","))
         menu.addItem(.separator())
