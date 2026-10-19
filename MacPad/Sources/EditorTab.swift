@@ -68,6 +68,9 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
     /// File Status Auto-Detection (MAC-20): a change made by another program, waiting for the
     /// host to ask about it (it asks only for the visible tab, with the app in front).
     private(set) var pendingExternalChange: FileChange?
+    /// MAC-73: an administrator save is under way. The helper's write lands before its reply, so
+    /// the watcher would see our own file as another program's; until the reply, it looks away.
+    private(set) var isSavingAsAdministrator = false
     var onExternalChange: ((EditorTab) -> Void)?
     /// Text was inserted or deleted (incremental search's count goes stale).
     var onTextModified: (() -> Void)?
@@ -240,11 +243,17 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
     /// MAC-24 / MAC-28 / MAC-55: the helper the installer set up, which asks macOS for an
     /// administrator (Touch ID or password) naming the file; otherwise MAC-22's password prompt.
     /// Either way, one popup. System startup and security files are refused on both routes.
-    private func adminSave(_ data: Data, to url: URL, completion: @escaping (Bool) -> Void) {
+    private func adminSave(_ data: Data, to url: URL, completion outerCompletion: @escaping (Bool) -> Void) {
         guard !FileInstaller.isProtected(url.path) else {
             presentSaveError(FileInstaller.Failure.protectedPath(url.path))
-            completion(false)
+            outerCompletion(false)
             return
+        }
+        // MAC-73: saved, didWrite has the new snapshot; cancelled or failed, the old one still holds.
+        isSavingAsAdministrator = true
+        let completion: (Bool) -> Void = { [weak self] saved in
+            self?.isSavingAsAdministrator = false
+            outerCompletion(saved)
         }
         let helper = AdminHelperSupport.helper
         helper.checkAvailable { [weak self] available in
@@ -544,7 +553,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
     /// it directly). A change is recorded once and reported to the host; nothing more is noted
     /// until the host resolves it.
     func checkDiskState() {
-        guard !isMonitoring, pendingExternalChange == nil, FileStatusPreferences.isEnabled,
+        guard !isMonitoring, !isSavingAsAdministrator, pendingExternalChange == nil, FileStatusPreferences.isEnabled,
               let url = fileURL else { return }
         let current = FileSnapshot.of(path: url.path)
         let change = FileChange.classify(previous: diskSnapshot, current: current)

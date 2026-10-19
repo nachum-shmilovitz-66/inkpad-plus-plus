@@ -430,6 +430,8 @@ private final class FakeHelper: AdminHelperService {
     var failInstall = false
     /// MAC-72: approved, then the write fails (as /etc/hosts did).
     var failWrite = false
+    /// MAC-73: runs after the write and before the reply, as the file watcher can.
+    var beforeReply: (() -> Void)?
     private(set) var installs = 0
     let unlockedDir: String
 
@@ -451,6 +453,7 @@ private final class FakeHelper: AdminHelperService {
         try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: unlockedDir)
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: unlockedDir) }
         let (reply, message) = HelperRequest.handle(data, path: path, authorization: Data(count: 32), authorizer: authorizer)
+        beforeReply?()
         completion(AdminHelperResult(reply, message))
     }
 }
@@ -582,6 +585,49 @@ final class EditorTabHelperSaveTests: XCTestCase {
         XCTAssertEqual(runner.runs, 0, "no password prompt after an approved write failed")
         XCTAssertTrue(reported?.localizedDescription.contains("Could not open /etc") ?? false, "\(String(describing: reported))")
         XCTAssertTrue(tab.isModified, "the edit stays, unsaved")
+    }
+
+    /// Regression (MAC-73): the helper's write landed before its reply; the watcher saw the new file
+    /// against the old snapshot and asked "modified by another program?" about our own save.
+    func testOurOwnAdministratorSaveIsNotAnExternalChange() throws {
+        let helper = FakeHelper(available: true, unlockedDir: dir.path)
+        AdminHelperSupport.helper = helper
+        PrivilegedSave.runner = CountingRunner(unlockedDir: dir.path)
+        let tab = try editedTab()
+        var prompts = 0
+        tab.onExternalChange = { _ in prompts += 1 }
+        helper.beforeReply = { tab.checkDiskState() }  // the watcher fires between write and reply
+        var saved: Bool?
+        tab.save { saved = $0 }
+        XCTAssertEqual(saved, true)
+        XCTAssertFalse(tab.isSavingAsAdministrator)
+        tab.checkDiskState()  // and once more afterwards, as the next poll would
+        XCTAssertEqual(prompts, 0, "our own write is never another program's")
+        XCTAssertNil(tab.pendingExternalChange)
+
+        // Another program changing it afterwards is still reported.
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
+        try Data("other\n".utf8).write(to: url)
+        tab.checkDiskState()
+        XCTAssertEqual(prompts, 1)
+    }
+
+    func testACancelledAdministratorSaveStillReportsARealOutsideChange() throws {
+        let helper = FakeHelper(available: true, unlockedDir: dir.path)
+        helper.authorizer.answer = .cancelled
+        AdminHelperSupport.helper = helper
+        PrivilegedSave.runner = CountingRunner(unlockedDir: dir.path)
+        let tab = try editedTab()
+        var prompts = 0
+        tab.onExternalChange = { _ in prompts += 1 }
+        tab.save { _ in }
+        XCTAssertFalse(tab.isSavingAsAdministrator)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
+        try Data("other\n".utf8).write(to: url)
+        tab.checkDiskState()
+        XCTAssertEqual(prompts, 1, "the old snapshot still holds after a cancel")
     }
 
     func testAFailingHelperFallsBackToThePasswordPrompt() throws {
