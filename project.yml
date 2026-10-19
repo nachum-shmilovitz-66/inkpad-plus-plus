@@ -100,6 +100,10 @@ targets:
     postBuildScripts:
       - name: Debug builds open no documents
         basedOnDependencyAnalysis: false
+        # MAC-76: the processed Info.plist is this phase's input, so Xcode runs it after
+        # ProcessInfoPlistFile — without it a fresh build processed the plist last and undid the strip.
+        inputFiles:
+          - $(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)
         script: |
           # MAC-74: Xcode registers every app it builds with Launch Services, so a Debug build (the
           # test host) showed up in Finder's Open With as "MacPad++ Debug". Without document types it

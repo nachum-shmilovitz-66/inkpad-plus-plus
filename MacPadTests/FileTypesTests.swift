@@ -13,6 +13,16 @@ final class FileTypesTests: XCTestCase {
         XCTAssertFalse(documentTypes.isEmpty, "the shipped Info.plist still declares them")
     }
 
+    /// MAC-76: the strip runs after Xcode processes Info.plist, or a fresh build undoes it.
+    func testTheStripPhaseRunsAfterInfoPlistProcessing() throws {
+        let spec = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("project.yml"), encoding: .utf8)
+        let phase = try XCTUnwrap(spec.range(of: "- name: Debug builds open no documents"))
+        let rest = spec[phase.upperBound...]
+        let script = try XCTUnwrap(rest.range(of: "script: |"))
+        XCTAssertTrue(rest[..<script.lowerBound].contains("- $(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)"))
+    }
+
     /// The shipped Info.plist: Debug builds (the test host) drop their document types (MAC-74).
     private var info: [String: Any] {
         let plist = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
