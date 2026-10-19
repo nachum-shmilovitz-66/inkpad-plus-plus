@@ -259,7 +259,7 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
                         completion(true)
                     case .cancelled:
                         completion(false)  // stay dirty, say nothing
-                    case .refused(let why):
+                    case .refused(let why), .writeFailed(let why):
                         self.presentSaveError(FileInstaller.Failure.io(why))
                         completion(false)
                     case .failed(let why):

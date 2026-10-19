@@ -25,6 +25,8 @@ enum AdminHelperResult {
     case refused(String)
     /// The helper could not do it: the password prompt may.
     case failed(String)
+    /// MAC-72: the administrator approved, then the write failed: say why, do not prompt again.
+    case writeFailed(String)
 
     init(_ reply: HelperReply, _ message: String?) {
         switch reply {
@@ -32,6 +34,7 @@ enum AdminHelperResult {
         case .cancelled: self = .cancelled
         case .refused: self = .refused(message ?? "refused")
         case .failed: self = .failed(message ?? "failed")
+        case .writeFailed: self = .writeFailed(message ?? "the file could not be written")
         }
     }
 }

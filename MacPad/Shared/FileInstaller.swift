@@ -33,10 +33,39 @@ enum FileInstaller {
         "/private/etc/periodic/", "/private/var/root/", "/private/var/db/",
     ]
 
+    /// MAC-72: `path` with every symlink resolved the way the kernel sees it — /etc/hosts is
+    /// /private/etc/hosts. `URL.resolvingSymlinksInPath()` strips /private again (documented), and
+    /// /etc itself is a link, so a folder opened from its result with O_NOFOLLOW fails. A final link
+    /// is followed even when its target does not exist yet (the save creates it there).
+    static func realPath(_ path: String) -> String {
+        var current = URL(fileURLWithPath: path).standardizedFileURL.path
+        for _ in 0..<16 {
+            guard let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: current) else { break }
+            current = destination.hasPrefix("/") ? destination
+                : URL(fileURLWithPath: current).deletingLastPathComponent().appendingPathComponent(destination).standardizedFileURL.path
+        }
+        if let resolved = realpath(current, nil) {
+            defer { free(resolved) }
+            return String(cString: resolved)
+        }
+        let url = URL(fileURLWithPath: current)
+        guard let folder = realpath(url.deletingLastPathComponent().path, nil) else { return current }
+        defer { free(folder) }
+        return URL(fileURLWithPath: String(cString: folder)).appendingPathComponent(url.lastPathComponent).path
+    }
+
+    /// A real path as people write it: /private/etc/hosts reads /etc/hosts (MAC-72).
+    static func displayPath(_ path: String) -> String {
+        for link in ["/etc/", "/tmp/", "/var/"] where path.hasPrefix("/private" + link) {
+            return String(path.dropFirst("/private".count))
+        }
+        return path
+    }
+
     /// `path` as written, with /etc → /private/etc, and every symlink on the way followed — also
     /// a link whose target does not exist yet (the save would create it there).
     static func isProtected(_ path: String) -> Bool {
-        var candidates = [path, URL(fileURLWithPath: path).resolvingSymlinksInPath().path]
+        var candidates = [path, URL(fileURLWithPath: path).resolvingSymlinksInPath().path, realPath(path)]
         var current = path
         for _ in 0..<16 {
             guard let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: current) else { break }
@@ -74,7 +103,7 @@ enum FileInstaller {
     /// descriptor, and it is renamed over the target within that same folder.
     static func install(_ data: Data, atPath path: String) throws {
         try validate(path: path, size: data.count)
-        let target = URL(fileURLWithPath: path).resolvingSymlinksInPath()
+        let target = URL(fileURLWithPath: realPath(path))  // MAC-72: /private kept, so /etc is a real folder
         let folderPath = target.deletingLastPathComponent().path
         let name = target.lastPathComponent
 
@@ -196,8 +225,10 @@ enum HelperIdentity {
     case cancelled = 1
     /// Refused whatever the user says (a protected file, a bad request).
     case refused = 2
-    /// Could not do it (no right installed, I/O error): the app may try the password prompt.
+    /// Could not do it (no right installed, not authorized): the app may try the password prompt.
     case failed = 3
+    /// MAC-72: authorized, but the write itself failed. The app reports it and does not prompt again.
+    case writeFailed = 4
 }
 
 /// Checks that an administrator authorized this one write (MAC-55). The helper's implementation
@@ -222,7 +253,7 @@ enum HelperRequest {
         } catch {
             return (.refused, error.localizedDescription)
         }
-        let target = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+        let target = FileInstaller.displayPath(FileInstaller.realPath(path))
         do {
             try authorizer.authorize(authorization, path: target)
         } catch RequestAuthorization.cancelled {
@@ -234,7 +265,8 @@ enum HelperRequest {
             try install(data, path)
             return (.saved, nil)
         } catch {
-            return (.failed, error.localizedDescription)
+            // MAC-72: authorized, then the write failed: report it; asking again would not help.
+            return (.writeFailed, error.localizedDescription)
         }
     }
 }

@@ -72,6 +72,48 @@ final class FileInstallerTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: real, encoding: .utf8), "2")
     }
 
+    /// Regression (MAC-72): /etc is a link to /private/etc. URL.resolvingSymlinksInPath() turned
+    /// /private/etc/hosts back into /etc/hosts, and the folder /etc — a link — failed to open with
+    /// O_NOFOLLOW: "Could not open /etc: Not a directory". Saving /etc/hosts never worked from 0.1.14 on.
+    func testAFileInAFolderReachedThroughALinkIsWritten() throws {
+        let real = dir.appendingPathComponent("private-etc")
+        try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+        let link = dir.appendingPathComponent("etc")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+        try Data("old\n".utf8).write(to: real.appendingPathComponent("hosts"))
+        try FileInstaller.install(Data("new\n".utf8), atPath: link.appendingPathComponent("hosts").path)
+        XCTAssertEqual(try String(contentsOf: real.appendingPathComponent("hosts"), encoding: .utf8), "new\n")
+        XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: link.path), real.path, "the link stays a link")
+        try FileInstaller.install(Data("x".utf8), atPath: link.appendingPathComponent("new.conf").path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: real.appendingPathComponent("new.conf").path), "a new file too")
+    }
+
+    /// MAC-72, against the real /etc: the installer gets as far as the folder. Not being root, it is
+    /// then refused (nothing is written), but no longer with "Could not open /etc: Not a directory".
+    func testTheRealEtcFolderOpens() {
+        let path = "/etc/macpad-mac72-\(UUID().uuidString)"
+        XCTAssertThrowsError(try FileInstaller.install(Data("x".utf8), atPath: path)) { error in
+            XCTAssertFalse(error.localizedDescription.contains("Not a directory"), error.localizedDescription)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path))
+    }
+
+    func testRealPathKeepsPrivateAndFollowsEveryLink() throws {
+        XCTAssertEqual(FileInstaller.realPath("/etc/hosts"), "/private/etc/hosts")
+        XCTAssertEqual(FileInstaller.realPath("/tmp"), "/private/tmp")
+        XCTAssertEqual(FileInstaller.realPath("/etc/macpad-no-such-file"), "/private/etc/macpad-no-such-file", "a new file, via its folder")
+        XCTAssertEqual(FileInstaller.realPath("/private/etc/hosts"), "/private/etc/hosts")
+        let real = dir.appendingPathComponent("target.txt")
+        let dangling = dir.appendingPathComponent("dangling")
+        try FileManager.default.createSymbolicLink(at: dangling, withDestinationURL: real)
+        XCTAssertEqual(FileInstaller.realPath(dangling.path), FileInstaller.realPath(dir.path) + "/target.txt",
+                       "a link to a file not created yet leads to where it will be")
+        XCTAssertEqual(FileInstaller.displayPath("/private/etc/hosts"), "/etc/hosts")
+        XCTAssertEqual(FileInstaller.displayPath("/private/var/log/x"), "/var/log/x")
+        XCTAssertEqual(FileInstaller.displayPath("/private/other"), "/private/other")
+        XCTAssertEqual(FileInstaller.displayPath("/Users/me/a"), "/Users/me/a")
+    }
+
     func testAnUnwritableFolderFailsCleanly() throws {
         let target = dir.appendingPathComponent("keep")
         try Data("original".utf8).write(to: target)
@@ -386,6 +428,8 @@ final class PkgScriptTests: XCTestCase {
 private final class FakeHelper: AdminHelperService {
     var available: Bool
     var failInstall = false
+    /// MAC-72: approved, then the write fails (as /etc/hosts did).
+    var failWrite = false
     private(set) var installs = 0
     let unlockedDir: String
 
@@ -403,6 +447,7 @@ private final class FakeHelper: AdminHelperService {
     func install(_ data: Data, atPath path: String, completion: @escaping (AdminHelperResult) -> Void) {
         installs += 1
         if failInstall { completion(.failed("helper unreachable")); return }
+        if failWrite { completion(AdminHelperResult(.writeFailed, "Could not open /etc: Not a directory")); return }
         try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: unlockedDir)
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: unlockedDir) }
         let (reply, message) = HelperRequest.handle(data, path: path, authorization: Data(count: 32), authorizer: authorizer)
@@ -520,6 +565,25 @@ final class EditorTabHelperSaveTests: XCTestCase {
         XCTAssertEqual((PrivilegedSave.runner as? CountingRunner)?.runs, 1)
     }
 
+    /// Regression (MAC-72): after Touch ID approved the save and the write failed, the app asked
+    /// again with the password prompt — it looked as if Touch ID had been ignored.
+    func testAWriteThatFailsAfterApprovalIsReportedWithoutASecondPrompt() throws {
+        let helper = FakeHelper(available: true, unlockedDir: dir.path)
+        helper.failWrite = true
+        let runner = CountingRunner(unlockedDir: dir.path)
+        AdminHelperSupport.helper = helper
+        PrivilegedSave.runner = runner
+        let tab = try editedTab()
+        var reported: Error?
+        tab.onSaveError = { reported = $0 }
+        var saved: Bool?
+        tab.save { saved = $0 }
+        XCTAssertEqual(saved, false)
+        XCTAssertEqual(runner.runs, 0, "no password prompt after an approved write failed")
+        XCTAssertTrue(reported?.localizedDescription.contains("Could not open /etc") ?? false, "\(String(describing: reported))")
+        XCTAssertTrue(tab.isModified, "the edit stays, unsaved")
+    }
+
     func testAFailingHelperFallsBackToThePasswordPrompt() throws {
         let helper = FakeHelper(available: true, unlockedDir: dir.path)
         helper.failInstall = true
@@ -578,6 +642,18 @@ final class HelperRequestTests: XCTestCase {
             XCTAssertEqual(reply, answer == .cancelled ? .cancelled : .failed)
             XCTAssertFalse(FileManager.default.fileExists(atPath: target.path))
         }
+    }
+
+    /// MAC-72: authorized, then the write failed: a reply that keeps the app from prompting again.
+    func testAWriteThatFailsAfterAuthorizationIsReportedAsSuch() throws {
+        let authorizer = FakeAuthorizer()
+        let target = dir.appendingPathComponent("a.txt")
+        struct DiskFull: Error {}
+        let (reply, message) = HelperRequest.handle(Data("x".utf8), path: target.path, authorization: Data(count: 32),
+                                                    authorizer: authorizer, install: { _, _ in throw DiskFull() })
+        XCTAssertEqual(reply, .writeFailed)
+        XCTAssertNotNil(message)
+        XCTAssertEqual(authorizer.prompts.count, 1)
     }
 
     func testTheAdministratorSeesTheFileThatWillReallyBeWritten() throws {
