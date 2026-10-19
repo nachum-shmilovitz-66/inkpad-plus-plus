@@ -1,11 +1,11 @@
 #!/bin/zsh
-# MAC-59: checks a built MacPad++ installer the way the MAC-25 review did; make-pkg.sh runs it on
+# MAC-59: checks a built Inkpad++ installer the way the MAC-25 review did; make-pkg.sh runs it on
 # every package and fails the build if anything is off.
-#   scripts/check-pkg.sh dist/MacPad++-<version>.pkg
+#   scripts/check-pkg.sh dist/Inkpad++-<version>.pkg
 set -euo pipefail
 
 PKG=${1:?usage: check-pkg.sh <pkg>}
-WORK=$(mktemp -d "${TMPDIR:-/tmp}/macpad-check-pkg.XXXXXX")
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/inkpad-check-pkg.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 fail() { echo "check-pkg: $*" >&2; exit 1; }
 
@@ -17,19 +17,19 @@ DIST="$WORK/x/Distribution"
 
 grep -q '<relocate>' "$INFO" && fail "the bundle is relocatable (BundleIsRelocatable must be false)"
 grep -q 'install-location="/Applications"' "$INFO" || fail "install location is not /Applications"
-grep -q '<app id="app.macpad.MacPad"' "$DIST" || fail "must-close is missing"
+grep -q '<app id="app.inkpad.Inkpad"' "$DIST" || fail "must-close is missing"
 grep -q '<os-version min="13.0"' "$DIST" || fail "allowed-os-versions (13.0) is missing"
 grep -q 'hostArchitectures="arm64"' "$DIST" || fail "hostArchitectures is not arm64"
 
 PAYLOAD="$COMPONENT/Payload"
-[[ -d $PAYLOAD/MacPad++.app ]] || fail "no MacPad++.app in the payload"
-for f in MacPad++ MacPadHelper macpad; do
-  [[ -x $PAYLOAD/MacPad++.app/Contents/MacOS/$f ]] || fail "Contents/MacOS/$f missing"
+[[ -d $PAYLOAD/Inkpad++.app ]] || fail "no Inkpad++.app in the payload"
+for f in Inkpad++ InkpadHelper inkpad; do
+  [[ -x $PAYLOAD/Inkpad++.app/Contents/MacOS/$f ]] || fail "Contents/MacOS/$f missing"
 done
-[[ -f $PAYLOAD/MacPad++.app/Contents/Resources/uninstall.sh ]] || fail "uninstall.sh missing"
+[[ -f $PAYLOAD/Inkpad++.app/Contents/Resources/uninstall.sh ]] || fail "uninstall.sh missing"
 [[ -z $(find "$PAYLOAD" -name '._*' -print -quit) ]] || fail "AppleDouble ._ files in the payload"
-[[ ! -e $PAYLOAD/MacPad++.app/Contents/Library/LaunchDaemons ]] || fail "stale Contents/Library/LaunchDaemons in the bundle"
-grep -q 'authorizationdb write app.macpad.MacPad.save' "$COMPONENT/Scripts/postinstall" || fail "postinstall does not install the save right"
+[[ ! -e $PAYLOAD/Inkpad++.app/Contents/Library/LaunchDaemons ]] || fail "stale Contents/Library/LaunchDaemons in the bundle"
+grep -q 'authorizationdb write app.inkpad.Inkpad.save' "$COMPONENT/Scripts/postinstall" || fail "postinstall does not install the save right"
 grep -q 'PrivilegedHelperTools' "$COMPONENT/Scripts/postinstall" || fail "postinstall does not copy the helper out of the bundle"
 
 # Ownership in the bill of materials: everything root:wheel, nothing group/other-writable.

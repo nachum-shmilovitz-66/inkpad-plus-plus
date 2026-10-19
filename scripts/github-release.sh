@@ -2,9 +2,9 @@
 # MAC-68: publishes an installer as GitHub release v<version> at HEAD, then deletes every other
 # release, so GitHub keeps only the newest one (the user's rule, 2026-10-18 — like dist/ keeping
 # only the newest .pkg). Older releases' git tags stay. deploy patch runs it after make-pkg.sh.
-#   scripts/github-release.sh dist/MacPad++-1.0.0.pkg 1.0.0
-# MAC-75: only a MacPad++ installer is published — the repository is public, "Notepad++" is Don Ho's
-# trademark, and Check for Updates installs only MacPad++-<version>.pkg titled MacPad++. A personal
+#   scripts/github-release.sh dist/Inkpad++-1.0.0.pkg 1.0.0
+# MAC-75: only a Inkpad++ installer is published — the repository is public, "upstream" is Don Ho's
+# trademark, and Check for Updates installs only Inkpad++-<version>.pkg titled Inkpad++. A personal
 # build (MAC-66/67) is never released; make-pkg.sh builds the public package next to it.
 # The release notes list the commits since the previous release; the app shows them in its offer.
 set -euo pipefail
@@ -16,13 +16,13 @@ FILE=${PKG:t}
 NAME=${FILE%-$VERSION.pkg}
 [[ $NAME != $FILE ]] || { echo "$FILE is not <name>-$VERSION.pkg" >&2; exit 1; }
 
-[[ $NAME == MacPad++ ]] || { echo "refusing to publish $FILE: only MacPad++-<version>.pkg is released" >&2; exit 1; }
-WORK=$(mktemp -d "${TMPDIR:-/tmp}/macpad-release.XXXXXX")
+[[ $NAME == Inkpad++ ]] || { echo "refusing to publish $FILE: only Inkpad++-<version>.pkg is released" >&2; exit 1; }
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/inkpad-release.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 xar -x -f "$PKG" -C "$WORK" Distribution
-grep -q '<title>MacPad++</title>' "$WORK/Distribution" \
-  || { echo "refusing to publish $FILE: its installer is not titled MacPad++" >&2; exit 1; }
-grep -q "<pkg-ref id=\"app.macpad.MacPad\" version=\"$VERSION\"" "$WORK/Distribution" \
+grep -q '<title>Inkpad++</title>' "$WORK/Distribution" \
+  || { echo "refusing to publish $FILE: its installer is not titled Inkpad++" >&2; exit 1; }
+grep -q "<pkg-ref id=\"app.inkpad.Inkpad\" version=\"$VERSION\"" "$WORK/Distribution" \
   || { echo "refusing to publish $FILE: it is not version $VERSION" >&2; exit 1; }
 pkgutil --check-signature "$PKG" | grep -q 'Developer ID Installer: .*(96Y4LX7FVB)' \
   || { echo "refusing to publish $FILE: not signed with the team's Developer ID Installer" >&2; exit 1; }

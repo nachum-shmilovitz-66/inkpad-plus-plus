@@ -1,23 +1,23 @@
 #!/usr/bin/env swift
-// MAC-50: generates MacPad/Info.plist's document types from Notepad++'s langs.model.xml.
+// MAC-50: generates Inkpad/Info.plist's document types from upstream's langs.model.xml.
 //
-//   swift scripts/gen-file-types.swift            rewrite MacPad/Info.plist
-//   swift scripts/gen-file-types.swift --check    exit 1 if MacPad/Info.plist is out of date
+//   swift scripts/gen-file-types.swift            rewrite Inkpad/Info.plist
+//   swift scripts/gen-file-types.swift --check    exit 1 if Inkpad/Info.plist is out of date
 //
-// Every language gets a document type (role Editor, rank Alternate: MacPad++ is offered in
-// Open With but never takes a file type over by being installed — Notepad++'s installer does not
+// Every language gets a document type (role Editor, rank Alternate: Inkpad++ is offered in
+// Open With but never takes a file type over by being installed — upstream's installer does not
 // either). An extension macOS already knows as a core text type (public.c-source, public.json …)
-// uses that type; the others get a type MacPad++ imports per language, conforming to
+// uses that type; the others get a type Inkpad++ imports per language, conforming to
 // public.plain-text, so Finder can name them and Settings › File Association (MAC-51) can make
-// MacPad++ their default app. The generic Text type stays as the fallback for everything else.
+// Inkpad++ their default app. The generic Text type stays as the fallback for everything else.
 
 import Foundation
 import UniformTypeIdentifiers
 
 let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-let langsURL = root.appendingPathComponent("vendor/notepad-plus-plus/PowerEditor/src/langs.model.xml")
-let tableURL = root.appendingPathComponent("MacPad/Sources/LanguageTable.swift")
-let plistURL = root.appendingPathComponent("MacPad/Info.plist")
+let langsURL = root.appendingPathComponent("vendor/upstream/PowerEditor/src/langs.model.xml")
+let tableURL = root.appendingPathComponent("Inkpad/Sources/LanguageTable.swift")
+let plistURL = root.appendingPathComponent("Inkpad/Info.plist")
 let check = CommandLine.arguments.contains("--check")
 
 func fail(_ message: String) -> Never {
@@ -68,7 +68,7 @@ for node in nodes {
         }
     }
     if !own.isEmpty {
-        let id = "app.macpad.lang." + name.map { $0.isLetter || $0.isNumber ? String($0) : "-" }.joined()
+        let id = "app.inkpad.lang." + name.map { $0.isLetter || $0.isNumber ? String($0) : "-" }.joined()
         types.append(id)
         imported.append([
             "UTTypeIdentifier": id,
@@ -99,7 +99,7 @@ plist["UTImportedTypeDeclarations"] = imported
 let output = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
 
 if check {
-    guard output == data else { fail("MacPad/Info.plist is out of date; run swift scripts/gen-file-types.swift") }
+    guard output == data else { fail("Inkpad/Info.plist is out of date; run swift scripts/gen-file-types.swift") }
     print("gen-file-types: up to date (\(documentTypes.count) document types, \(imported.count) imported types)")
 } else {
     try output.write(to: plistURL)

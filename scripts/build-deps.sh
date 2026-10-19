@@ -1,11 +1,11 @@
 #!/bin/zsh
-# Builds the editor engine MacPad++ links against, from the read-only Notepad++ tree in vendor/:
+# Builds the editor engine Inkpad++ links against, from the read-only upstream tree in vendor/:
 #   build/deps/Scintilla.framework   (Scintilla's own Xcode project, Cocoa backend)
 #   build/deps/liblexilla.a          (compiled here directly; see below)
-#   build/deps/libscintilla-boostregex.a  (Notepad++'s Boost regex engine, linked into Scintilla)
+#   build/deps/libscintilla-boostregex.a  (upstream's Boost regex engine, linked into Scintilla)
 #
 # Lexilla is not built from its Xcode project: that project hard-codes a signing team and does
-# not list the three lexers Notepad++ adds (LexObjC, LexSearchResult, LexUser), so it fails to
+# not list the three lexers upstream adds (LexObjC, LexSearchResult, LexUser), so it fails to
 # link. Compiling lexers/*.cxx + lexlib/*.cxx + src/Lexilla.cxx picks them up without editing
 # the vendor tree.
 #
@@ -13,7 +13,7 @@
 set -euo pipefail
 
 ROOT=${0:A:h:h}
-NPP=$ROOT/vendor/notepad-plus-plus
+NPP=$ROOT/vendor/upstream
 OUT=$ROOT/build/deps
 OBJ=$ROOT/build/obj-lexilla
 TARGET=arm64-apple-macos13.0
@@ -21,7 +21,7 @@ TARGET=arm64-apple-macos13.0
 [[ ${1:-} == --clean ]] && rm -rf "$OUT" "$OBJ" "$ROOT/build/dd-scintilla" "$ROOT/build/obj-boostregex" "$ROOT/build/obj-uchardet"
 mkdir -p "$OUT" "$OBJ" "$OBJ/shim"
 
-# MAC-64: only the reviewed, unmodified Notepad++ commit is built.
+# MAC-64: only the reviewed, unmodified upstream commit is built.
 "$ROOT/scripts/fetch-vendor.sh" >/dev/null
 
 # MAC-64: the vendor code parses every opened file — build it with the hardening Apple clang
@@ -30,8 +30,8 @@ mkdir -p "$OUT" "$OBJ" "$OBJ/shim"
 HARDEN=(-fstack-protector-strong -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST -ftrivial-auto-var-init=zero)
 
 echo "== libscintilla-boostregex.a"
-# Notepad++'s regex engine for Scintilla (MAC-29): boostregex/BoostRegExSearch.cxx with Boost.Regex
-# in header-only standalone mode, plugged in through SCI_OWNREGEX — exactly how Notepad++ builds
+# upstream's regex engine for Scintilla (MAC-29): boostregex/BoostRegExSearch.cxx with Boost.Regex
+# in header-only standalone mode, plugged in through SCI_OWNREGEX — exactly how upstream builds
 # it (boostregex/nppSpecifics.mak), so Regex searches use Boost's Perl syntax, not Scintilla's.
 BRX=$ROOT/build/obj-boostregex
 mkdir -p "$BRX"
@@ -48,7 +48,7 @@ rm -f "$OUT/libscintilla-boostregex.a"
 xcrun libtool -static -o "$OUT/libscintilla-boostregex.a" $brx_objs
 # BoostRegexLocale.o is referenced by nothing (it only runs a static initializer), hence -force_load
 # below; without it macOS would classify every non-ASCII character as a non-letter.
-cp "$NPP/scintilla/include/BoostRegexSearch.h" "$OUT/"   # Notepad++'s extra SCFIND_REGEXP_* flags
+cp "$NPP/scintilla/include/BoostRegexSearch.h" "$OUT/"   # upstream's extra SCFIND_REGEXP_* flags
 
 echo "== Scintilla.framework"
 xcodebuild -quiet \
@@ -65,17 +65,17 @@ xcodebuild -quiet \
 # the switch took effect.
 symbols=$(nm "$OUT/Scintilla.framework/Scintilla")
 if [[ $symbols != *BoostRegexSearch* ]]; then
-  echo "Scintilla.framework does not use Notepad++'s Boost regex engine (SCI_OWNREGEX not applied)" >&2
+  echo "Scintilla.framework does not use upstream's Boost regex engine (SCI_OWNREGEX not applied)" >&2
   exit 1
 fi
 
-# Notepad++ appended an unguarded C++ block (SearchResultMarkings, uses std::vector) to the public
+# upstream appended an unguarded C++ block (SearchResultMarkings, uses std::vector) to the public
 # Scintilla.h. Swift's bridging header is compiled as plain Objective-C, so guard it — in the built
 # framework's copy only; vendor/ stays pristine.
 SCIH=$OUT/Scintilla.framework/Headers/Scintilla.h
-if ! grep -q "MacPad++: C++-only" "$SCIH"; then
-  perl -0pi -e 's/(#include <vector>\r?\n.*?SearchResultMarkingLine \*_markings;\r?\n\};\r?\n)/\/* MacPad++: C++-only *\/\n#ifdef __cplusplus\n$1#endif\n/s' "$SCIH"
-  grep -q "MacPad++: C++-only" "$SCIH" || { echo "failed to guard C++ block in $SCIH" >&2; exit 1; }
+if ! grep -q "Inkpad++: C++-only" "$SCIH"; then
+  perl -0pi -e 's/(#include <vector>\r?\n.*?SearchResultMarkingLine \*_markings;\r?\n\};\r?\n)/\/* Inkpad++: C++-only *\/\n#ifdef __cplusplus\n$1#endif\n/s' "$SCIH"
+  grep -q "Inkpad++: C++-only" "$SCIH" || { echo "failed to guard C++ block in $SCIH" >&2; exit 1; }
 fi
 
 echo "== liblexilla.a"
@@ -130,7 +130,7 @@ xcrun libtool -static -o "$OUT/liblexilla.a" $objs
 cp "$LEX/include/Lexilla.h" "$LEX/include/SciLexer.h" "$OUT/"
 
 echo "== libuchardet.a"
-# Notepad++'s copy of Mozilla's universal charset detector (encoding detection, MAC-10).
+# upstream's copy of Mozilla's universal charset detector (encoding detection, MAC-10).
 UCD=$NPP/PowerEditor/src/uchardet
 UOBJ=$ROOT/build/obj-uchardet
 mkdir -p "$UOBJ"

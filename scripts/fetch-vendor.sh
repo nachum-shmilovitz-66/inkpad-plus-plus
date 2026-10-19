@@ -1,12 +1,12 @@
 #!/bin/zsh
-# Fetches the read-only Notepad++ source MacPad++ builds from (gitignored): a shallow clone of the
-# pinned tag into vendor/notepad-plus-plus. Safe to re-run; it leaves an existing checkout alone.
+# Fetches the read-only upstream source Inkpad++ builds from (gitignored): a shallow clone of the
+# pinned tag into vendor/upstream. Safe to re-run; it leaves an existing checkout alone.
 set -euo pipefail
 
 TAG=v8.9.8.1
 ROOT=${0:A:h:h}
-DEST=${MACPAD_VENDOR_DIR:-$ROOT/vendor/notepad-plus-plus}  # the override is for tests only
-# MAC-64: the tag is lightweight and Notepad++ signs only its installers, so the source is pinned
+DEST=${INKPAD_VENDOR_DIR:-$ROOT/vendor/upstream}  # the override is for tests only
+# MAC-64: the tag is lightweight and upstream signs only its installers, so the source is pinned
 # to the reviewed commit instead (scripts/deps/vendor.lock); anything else stops the build.
 COMMIT=$(<"$ROOT/scripts/deps/vendor.lock")
 

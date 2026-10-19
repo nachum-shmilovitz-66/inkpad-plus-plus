@@ -1,8 +1,8 @@
-// Draws the MacPad++ app icon at every size macOS needs and writes the asset catalog entry.
-// An original design (not Notepad++'s chameleon, which is its brand): a page of code lines in
-// Notepad++'s default-theme colours on a slate tile, with a "++" badge.
+// Draws the Inkpad++ app icon at every size macOS needs and writes the asset catalog entry.
+// An original design (not upstream's chameleon, which is its brand): a page of code lines in
+// upstream's default-theme colours on a slate tile, with a "++" badge.
 //
-// Usage: swift scripts/make-icon.swift            (writes MacPad/Resources/Assets.xcassets/AppIcon.appiconset)
+// Usage: swift scripts/make-icon.swift            (writes Inkpad/Resources/Assets.xcassets/AppIcon.appiconset)
 //        swift scripts/make-icon.swift <out.png>   (writes only a 1024 px preview)
 import AppKit
 
@@ -51,7 +51,7 @@ func drawIcon(_ ctx: CGContext, small: Bool) {
     ctx.fillPath()
     ctx.restoreGState()
 
-    // Line-number gutter, as in Notepad++.
+    // Line-number gutter, as in upstream.
     let gutter = CGRect(x: page.minX, y: page.minY, width: small ? 0 : 74, height: page.height)
     if !small {
         ctx.saveGState()
@@ -62,7 +62,7 @@ func drawIcon(_ ctx: CGContext, small: Bool) {
         ctx.restoreGState()
     }
 
-    // Code lines: (indent level, [(width, colour)]) — Notepad++ default theme colours.
+    // Code lines: (indent level, [(width, colour)]) — upstream default theme colours.
     let blue = rgb(0x0000FF), purple = rgb(0x8000FF), green = rgb(0x008000)
     let orange = rgb(0xFF8000), black = rgb(0x30343C), grey = rgb(0x808080)
     typealias Line = (indent: Int, segments: [(CGFloat, CGColor)])
@@ -150,7 +150,7 @@ if args.count > 1 {
 }
 
 let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-let set = root.appendingPathComponent("MacPad/Resources/Assets.xcassets/AppIcon.appiconset")
+let set = root.appendingPathComponent("Inkpad/Resources/Assets.xcassets/AppIcon.appiconset")
 try! FileManager.default.createDirectory(at: set, withIntermediateDirectories: true)
 
 var images: [[String: String]] = []

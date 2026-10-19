@@ -1,8 +1,8 @@
-# XcodeGen spec — run `xcodegen` to (re)generate MacPad++.xcodeproj (the .xcodeproj is not checked in).
+# XcodeGen spec — run `xcodegen` to (re)generate Inkpad++.xcodeproj (the .xcodeproj is not checked in).
 # Prerequisite: scripts/build-deps.sh (builds build/deps/Scintilla.framework and liblexilla.a).
-name: MacPad++
+name: Inkpad++
 options:
-  bundleIdPrefix: app.macpad
+  bundleIdPrefix: app.inkpad
   deploymentTarget:
     macOS: "13.0"
   createIntermediateGroups: true
@@ -13,7 +13,7 @@ settings:
     MARKETING_VERSION: "1.1.3"
     CURRENT_PROJECT_VERSION: "1"
 targets:
-  MacPad++:
+  Inkpad++:
     type: application
     platform: macOS
     # MAC-66: APP_DISPLAY_NAME (the visible name), overridable in a gitignored Config/Local.xcconfig.
@@ -21,18 +21,18 @@ targets:
       Debug: Config/Debug.xcconfig
       Release: Config/App.xcconfig
     sources:
-      - path: MacPad/Sources
-      - path: MacPad/Resources
-      - path: MacPad/Shared
-      - path: MacPad/CommandLine
+      - path: Inkpad/Sources
+      - path: Inkpad/Resources
+      - path: Inkpad/Shared
+      - path: Inkpad/CommandLine
     settings:
       base:
-        PRODUCT_NAME: MacPad++
+        PRODUCT_NAME: Inkpad++
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        PRODUCT_MODULE_NAME: MacPad
-        PRODUCT_BUNDLE_IDENTIFIER: app.macpad.MacPad
-        INFOPLIST_FILE: MacPad/Info.plist
-        SWIFT_OBJC_BRIDGING_HEADER: MacPad/Sources/BridgingHeader.h
+        PRODUCT_MODULE_NAME: Inkpad
+        PRODUCT_BUNDLE_IDENTIFIER: app.inkpad.Inkpad
+        INFOPLIST_FILE: Inkpad/Info.plist
+        SWIFT_OBJC_BRIDGING_HEADER: Inkpad/Sources/BridgingHeader.h
         FRAMEWORK_SEARCH_PATHS: $(PROJECT_DIR)/build/deps
         HEADER_SEARCH_PATHS: $(PROJECT_DIR)/build/deps
         LIBRARY_SEARCH_PATHS: $(PROJECT_DIR)/build/deps
@@ -46,7 +46,7 @@ targets:
         # A Debug build has its own bundle id: Finder / Open With never picks it over the
         # installed app, and it never shares the installed app's preferences.
         Debug:
-          PRODUCT_BUNDLE_IDENTIFIER: app.macpad.MacPad.debug
+          PRODUCT_BUNDLE_IDENTIFIER: app.inkpad.Inkpad.debug
         # MAC-59: Release builds carry the hardened runtime themselves, not only after make-pkg re-signs.
         Release:
           ENABLE_HARDENED_RUNTIME: YES
@@ -56,32 +56,32 @@ targets:
         codeSign: true
       # MAC-24: the helper binary goes into Contents/MacOS; postinstall copies it to
       # /Library/PrivilegedHelperTools (MAC-56).
-      - target: MacPadHelper
+      - target: InkpadHelper
         embed: true
         copy:
           destination: executables
-      # MAC-52: the macpad command-line tool, linked into /usr/local/bin by the package.
-      - target: macpad
+      # MAC-52: the inkpad command-line tool, linked into /usr/local/bin by the package.
+      - target: inkpad
         embed: true
         copy:
           destination: executables
     scheme:
       testTargets:
-        - MacPad++Tests
+        - Inkpad++Tests
       gatherCoverageData: true
     preBuildScripts:
-      - name: Copy Notepad++ data files
+      - name: Copy upstream data files
         basedOnDependencyAnalysis: false
         script: |
-          # Data files are reused verbatim from Notepad++ (vendor/ is gitignored, read-only).
+          # Data files are reused verbatim from upstream (vendor/ is gitignored, read-only).
           set -e
-          NPP="$PROJECT_DIR/vendor/notepad-plus-plus/PowerEditor"
-          DEST="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/npp"
+          NPP="$PROJECT_DIR/vendor/upstream/PowerEditor"
+          DEST="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/upstream"
           mkdir -p "$DEST"
           cp "$NPP/src/langs.model.xml" "$NPP/src/stylers.model.xml" "$DEST/"
           rsync -a --delete "$NPP/installer/themes/" "$DEST/themes/"
           rsync -a --delete "$NPP/installer/functionList/" "$DEST/functionList/"
-          # MAC-69: Notepad++'s Fluent UI toolbar icons (light/dark, regular/filled), for the toolbar option.
+          # MAC-69: upstream's Fluent UI toolbar icons (light/dark, regular/filled), for the toolbar option.
           for look in light dark; do
             mkdir -p "$DEST/icons/$look"
             rsync -a --delete "$NPP/src/icons/$look/toolbar/" "$DEST/icons/$look/toolbar/"
@@ -89,7 +89,7 @@ targets:
       - name: Localized display name
         basedOnDependencyAnalysis: false
         script: |
-          # MAC-66: Finder, the Dock and Spotlight show the file name (MacPad++.app) unless the
+          # MAC-66: Finder, the Dock and Spotlight show the file name (Inkpad++.app) unless the
           # bundle has a localized name (LSHasLocalizedDisplayName); this one is APP_DISPLAY_NAME.
           set -e
           DEST="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/en.lproj"
@@ -106,26 +106,26 @@ targets:
           - $(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)
         script: |
           # MAC-74: Xcode registers every app it builds with Launch Services, so a Debug build (the
-          # test host) showed up in Finder's Open With as "MacPad++ Debug". Without document types it
+          # test host) showed up in Finder's Open With as "Inkpad++ Debug". Without document types it
           # never does. Release builds keep them.
           if [ "$CONFIGURATION" = "Debug" ]; then
             /usr/libexec/PlistBuddy -c "Delete :CFBundleDocumentTypes" "$TARGET_BUILD_DIR/$INFOPLIST_PATH" 2>/dev/null || true
           fi
 
   # MAC-24: privileged helper (a launchd daemon installed by postinstall); runs as root, writes one
-  # file per request, only for MacPad++ signed with the team's Developer ID and only after an
+  # file per request, only for Inkpad++ signed with the team's Developer ID and only after an
   # administrator authorized that write (MAC-55).
-  MacPadHelper:
+  InkpadHelper:
     type: tool
     platform: macOS
     sources:
-      - path: MacPad/Helper
-      - path: MacPad/Shared
+      - path: Inkpad/Helper
+      - path: Inkpad/Shared
     settings:
       base:
-        PRODUCT_NAME: MacPadHelper
-        PRODUCT_BUNDLE_IDENTIFIER: app.macpad.MacPad.helper
-        OTHER_CODE_SIGN_FLAGS: "--identifier app.macpad.MacPad.helper"
+        PRODUCT_NAME: InkpadHelper
+        PRODUCT_BUNDLE_IDENTIFIER: app.inkpad.Inkpad.helper
+        OTHER_CODE_SIGN_FLAGS: "--identifier app.inkpad.Inkpad.helper"
         SKIP_INSTALL: YES
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGN_STYLE: Manual
@@ -136,21 +136,21 @@ targets:
         Release:
           ENABLE_HARDENED_RUNTIME: YES
 
-  # MAC-52: `macpad file -n42` from a shell; hands Notepad++'s options to the app.
-  macpad:
+  # MAC-52: `inkpad file -n42` from a shell; hands upstream's options to the app.
+  inkpad:
     type: tool
     platform: macOS
     sources:
-      - path: MacPad/Tool
-      - path: MacPad/CommandLine
+      - path: Inkpad/Tool
+      - path: Inkpad/CommandLine
     settings:
       base:
-        PRODUCT_NAME: macpad
-        # Its Swift module must not be "macpad": on a case-insensitive disk the test build then
-        # sometimes loads it for `@testable import MacPad` ("cannot load module 'macpad' as 'MacPad'").
-        PRODUCT_MODULE_NAME: MacPadCLI
-        PRODUCT_BUNDLE_IDENTIFIER: app.macpad.MacPad.cli
-        OTHER_CODE_SIGN_FLAGS: "--identifier app.macpad.MacPad.cli"
+        PRODUCT_NAME: inkpad
+        # Its Swift module must not be "inkpad": on a case-insensitive disk the test build then
+        # sometimes loads it for `@testable import Inkpad` ("cannot load module 'inkpad' as 'Inkpad'").
+        PRODUCT_MODULE_NAME: InkpadCLI
+        PRODUCT_BUNDLE_IDENTIFIER: app.inkpad.Inkpad.cli
+        OTHER_CODE_SIGN_FLAGS: "--identifier app.inkpad.Inkpad.cli"
         SKIP_INSTALL: YES
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGN_STYLE: Manual
@@ -161,16 +161,16 @@ targets:
         Release:
           ENABLE_HARDENED_RUNTIME: YES
 
-  MacPad++Tests:
+  Inkpad++Tests:
     type: bundle.unit-test
     platform: macOS
     sources:
-      - path: MacPadTests
+      - path: InkpadTests
     settings:
       base:
-        PRODUCT_NAME: MacPad++Tests
-        PRODUCT_MODULE_NAME: MacPadTests
-        PRODUCT_BUNDLE_IDENTIFIER: app.macpad.MacPadTests
+        PRODUCT_NAME: Inkpad++Tests
+        PRODUCT_MODULE_NAME: InkpadTests
+        PRODUCT_BUNDLE_IDENTIFIER: app.inkpad.InkpadTests
         GENERATE_INFOPLIST_FILE: YES
         FRAMEWORK_SEARCH_PATHS: $(PROJECT_DIR)/build/deps
         HEADER_SEARCH_PATHS: $(PROJECT_DIR)/build/deps
@@ -183,4 +183,4 @@ targets:
         DEVELOPMENT_TEAM: ""
         ENABLE_HARDENED_RUNTIME: NO
     dependencies:
-      - target: MacPad++
+      - target: Inkpad++

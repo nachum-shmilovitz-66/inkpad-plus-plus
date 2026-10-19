@@ -1,0 +1,17 @@
+Inkpad++ by Shmilovitz
+Copyright (C) 2026 Shmilovitz
+
+Inkpad++ is a macOS port of Notepad++ (https://notepad-plus-plus.org/), version 8.9.8.1,
+Copyright (C) Don Ho and the Notepad++ contributors, licensed under the GNU General Public
+License v3 or later. Parts of Inkpad++ are ported from Notepad++'s source code, and it reads
+Notepad++'s language, styler, theme and function-list files unchanged.
+
+Inkpad++ is an independent project. It is not affiliated with, endorsed by, or sponsored by
+Notepad++ or Don Ho. "Notepad++" is the name of Don Ho's project and is used here only to give
+credit.
+
+It also uses Scintilla and Lexilla (Copyright 1998-2024 Neil Hodgson, Historical Permission
+Notice and Disclaimer license), Boost.Regex (Boost Software License 1.0) and uchardet (MPL 1.1 /
+GPL 2.0 / LGPL 2.1), as built from the Notepad++ source tree.
+
+Inkpad++ is distributed under the GNU General Public License v3; see LICENSE.

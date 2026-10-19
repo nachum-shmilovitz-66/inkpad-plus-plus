@@ -1,47 +1,67 @@
 #!/bin/sh
-# MacPad++ package postinstall (runs as root after the app is copied) — MAC-28.
-# Installs MacPad++'s privileged helper as a launchd daemon, so administrator saves can use Touch ID
+# Inkpad++ package postinstall (runs as root after the app is copied) — MAC-28.
+# Installs Inkpad++'s privileged helper as a launchd daemon, so administrator saves can use Touch ID
 # without any further approval step: the user already approved this installation.
-# Never fails the installation: without the helper, MacPad++ falls back to the password prompt.
-# Test overrides (never set by Installer): MACPAD_LAUNCHD_DIR, MACPAD_LAUNCHCTL, MACPAD_BIN_DIR,
-# MACPAD_SECURITY, MACPAD_HELPER_TOOLS_DIR.
+# Never fails the installation: without the helper, Inkpad++ falls back to the password prompt.
+# Test overrides (never set by Installer): INKPAD_LAUNCHD_DIR, INKPAD_LAUNCHCTL, INKPAD_BIN_DIR,
+# INKPAD_SECURITY, INKPAD_HELPER_TOOLS_DIR.
 set -u
 # MAC-58: the test overrides below are honoured only when not running as root, so nothing in the
 # environment can choose what root runs or touches.
 if [ "$(/usr/bin/id -u)" = "0" ]; then
-  unset MACPAD_LAUNCHD_DIR MACPAD_LAUNCHCTL MACPAD_BIN_DIR MACPAD_SECURITY MACPAD_HELPER_TOOLS_DIR MACPAD_PKGUTIL
+  unset INKPAD_LAUNCHD_DIR INKPAD_LAUNCHCTL INKPAD_BIN_DIR INKPAD_SECURITY INKPAD_HELPER_TOOLS_DIR INKPAD_PKGUTIL
 fi
 
-LABEL="app.macpad.MacPad.helper"
+LABEL="app.inkpad.Inkpad.helper"
 TARGET="${2:-/Applications}"                       # the package's install location
-HELPER="$TARGET/MacPad++.app/Contents/MacOS/MacPadHelper"
-DAEMONS="${MACPAD_LAUNCHD_DIR:-/Library/LaunchDaemons}"
-LAUNCHCTL="${MACPAD_LAUNCHCTL:-/bin/launchctl}"
+HELPER="$TARGET/Inkpad++.app/Contents/MacOS/InkpadHelper"
+DAEMONS="${INKPAD_LAUNCHD_DIR:-/Library/LaunchDaemons}"
+LAUNCHCTL="${INKPAD_LAUNCHCTL:-/bin/launchctl}"
 PLIST="$DAEMONS/$LABEL.plist"
 # MAC-56: launchd runs a root-owned copy of the helper, outside /Applications (which admin-group
 # processes can write: replacing the bundle must not replace what runs as root).
-TOOLS="${MACPAD_HELPER_TOOLS_DIR:-/Library/PrivilegedHelperTools}"
+TOOLS="${INKPAD_HELPER_TOOLS_DIR:-/Library/PrivilegedHelperTools}"
 INSTALLED="$TOOLS/$LABEL"
 
-# MAC-52: the `macpad` command-line tool on the PATH, as a link into the app. A `macpad` there that
-# is not MacPad++'s own link is left alone.
-BIN="${MACPAD_BIN_DIR:-/usr/local/bin}"
-TOOL="$TARGET/MacPad++.app/Contents/MacOS/macpad"
+# MAC-52: the `inkpad` command-line tool on the PATH, as a link into the app. A `inkpad` there that
+# is not Inkpad++'s own link is left alone.
+BIN="${INKPAD_BIN_DIR:-/usr/local/bin}"
+TOOL="$TARGET/Inkpad++.app/Contents/MacOS/inkpad"
 if [ -x "$TOOL" ]; then
   mkdir -p "$BIN"
-  if [ ! -e "$BIN/macpad" ] && [ ! -L "$BIN/macpad" ]; then
-    ln -sfn "$TOOL" "$BIN/macpad"
-  elif [ -L "$BIN/macpad" ] && readlink "$BIN/macpad" | grep -q 'MacPad++\.app/Contents/MacOS/macpad$'; then
-    ln -sfn "$TOOL" "$BIN/macpad"
+  if [ ! -e "$BIN/inkpad" ] && [ ! -L "$BIN/inkpad" ]; then
+    ln -sfn "$TOOL" "$BIN/inkpad"
+  elif [ -L "$BIN/inkpad" ] && readlink "$BIN/inkpad" | grep -q 'Inkpad++\.app/Contents/MacOS/inkpad$'; then
+    ln -sfn "$TOOL" "$BIN/inkpad"
   else
-    echo "MacPad++: $BIN/macpad is not MacPad++'s; left as it is" >&2
+    echo "Inkpad++: $BIN/inkpad is not Inkpad++'s; left as it is" >&2
   fi
 fi
 
+# --- Legacy cleanup (MAC-78) -------------------------------------------------------------------
+# Inkpad++ was called MacPad++ up to 1.1.3. Remove that install: its helper daemon and root copy,
+# its save right, its `macpad` link (only Inkpad++'s own), its receipt, and the old app — only if
+# the bundle really is the old one. Delete this block once no MacPad++ installs are left.
+LEGACY_LABEL="app.macpad.MacPad.helper"
+"${INKPAD_LAUNCHCTL:-/bin/launchctl}" bootout "system/$LEGACY_LABEL" >/dev/null 2>&1 || true
+/bin/rm -f "${INKPAD_LAUNCHD_DIR:-/Library/LaunchDaemons}/$LEGACY_LABEL.plist" \
+  "${INKPAD_HELPER_TOOLS_DIR:-/Library/PrivilegedHelperTools}/$LEGACY_LABEL"
+"${INKPAD_SECURITY:-/usr/bin/security}" authorizationdb remove app.macpad.MacPad.save </dev/null >/dev/null 2>&1 || true
+if [ -L "$BIN/macpad" ] && readlink "$BIN/macpad" | grep -q 'MacPad++\.app/Contents/MacOS/macpad$'; then
+  /bin/rm -f "$BIN/macpad"
+fi
+"${INKPAD_PKGUTIL:-/usr/sbin/pkgutil}" --forget app.macpad.MacPad >/dev/null 2>&1 || true
+LEGACY_APP="$TARGET/MacPad++.app"
+if [ -d "$LEGACY_APP" ] && [ ! -L "$LEGACY_APP" ] &&
+   [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$LEGACY_APP/Contents/Info.plist" 2>/dev/null)" = "app.macpad.MacPad" ]; then
+  /bin/rm -rf "$LEGACY_APP"
+fi
+# --- End of legacy cleanup ---------------------------------------------------------------------
+
 # MAC-55: the authorization right the helper asks for on every save — an administrator, every
 # time (not shared with other rights, never cached). Without it the helper refuses to write.
-SECURITY="${MACPAD_SECURITY:-/usr/bin/security}"
-"$SECURITY" authorizationdb write app.macpad.MacPad.save >/dev/null 2>&1 <<'RIGHT_END' || echo "MacPad++: could not install the save right; administrator saves will use the password prompt" >&2
+SECURITY="${INKPAD_SECURITY:-/usr/bin/security}"
+"$SECURITY" authorizationdb write app.inkpad.Inkpad.save >/dev/null 2>&1 <<'RIGHT_END' || echo "Inkpad++: could not install the save right; administrator saves will use the password prompt" >&2
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -63,13 +83,13 @@ SECURITY="${MACPAD_SECURITY:-/usr/bin/security}"
 	<key>version</key>
 	<integer>1</integer>
 	<key>comment</key>
-	<string>MacPad++: save one file as administrator.</string>
+	<string>Inkpad++: save one file as administrator.</string>
 </dict>
 </plist>
 RIGHT_END
 
 if [ ! -x "$HELPER" ]; then
-  echo "MacPad++: helper not found at $HELPER; administrator saves will use the password prompt" >&2
+  echo "Inkpad++: helper not found at $HELPER; administrator saves will use the password prompt" >&2
   exit 0
 fi
 
@@ -77,11 +97,11 @@ fi
 "$LAUNCHCTL" bootout "system/$LABEL" >/dev/null 2>&1 || true
 
 mkdir -p "$TOOLS"
-COPY="$INSTALLED.macpad-tmp.$$"
+COPY="$INSTALLED.inkpad-tmp.$$"
 /bin/rm -f "$COPY"
 if ! /bin/cp "$HELPER" "$COPY"; then
   /bin/rm -f "$COPY"
-  echo "MacPad++: could not install the helper in $TOOLS; administrator saves will use the password prompt" >&2
+  echo "Inkpad++: could not install the helper in $TOOLS; administrator saves will use the password prompt" >&2
   exit 0
 fi
 /bin/chmod 544 "$COPY"
@@ -92,7 +112,7 @@ if [ "$(id -u)" = "0" ]; then /usr/sbin/chown root:wheel "$COPY"; fi
 ESCAPED=$(printf '%s' "$INSTALLED" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')
 
 mkdir -p "$DAEMONS"
-TMP="$PLIST.macpad-tmp.$$"
+TMP="$PLIST.inkpad-tmp.$$"
 cat > "$TMP" <<PLIST_END
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -109,7 +129,7 @@ cat > "$TMP" <<PLIST_END
 	</dict>
 	<key>AssociatedBundleIdentifiers</key>
 	<array>
-		<string>app.macpad.MacPad</string>
+		<string>app.inkpad.Inkpad</string>
 	</array>
 	<key>SpawnConstraint</key>
 	<dict>
@@ -126,6 +146,6 @@ if [ "$(id -u)" = "0" ]; then chown root:wheel "$TMP"; fi
 mv -f "$TMP" "$PLIST"
 
 if ! "$LAUNCHCTL" bootstrap system "$PLIST"; then
-  echo "MacPad++: could not start the helper; administrator saves will use the password prompt" >&2
+  echo "Inkpad++: could not start the helper; administrator saves will use the password prompt" >&2
 fi
 exit 0

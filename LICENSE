@@ -1,5 +1,5 @@
-MacPad++ is a macOS port of Notepad++ (https://notepad-plus-plus.org/) by Don Ho and
-contributors. It is distributed under the GNU General Public License, version 3, below.
+Inkpad++ by Shmilovitz is distributed under the GNU General Public License, version 3, below.
+Credits for the work it is ported from, and third-party notices: see NOTICE.
 Scintilla and Lexilla are distributed under their own licence (vendor/.../License.txt).
 
 GNU GENERAL PUBLIC LICENSE

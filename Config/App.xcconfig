@@ -1,8 +1,8 @@
 // MAC-66: the name shown in the menu bar, Dock, Finder and the app's own menus and alerts.
-// It is MacPad++ — "Notepad++" is Don Ho's trademark, so shared builds never carry it.
+// It is Inkpad++ — "upstream" is Don Ho's trademark, so shared builds never carry it.
 // For a personal build with another name, create Config/Local.xcconfig (gitignored), e.g.
-//   APP_DISPLAY_NAME = Notepad++
-// Only the visible name changes: bundle id, helper, storage folders and the .app file stay MacPad.
-APP_DISPLAY_NAME = MacPad++
+//   APP_DISPLAY_NAME = My Editor
+// Only the visible name changes: bundle id, helper, storage folders and the .app file stay Inkpad.
+APP_DISPLAY_NAME = Inkpad++
 
 #include? "Local.xcconfig"

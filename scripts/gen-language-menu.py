@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Generates MacPad/Sources/LanguageMenuTable.swift from Notepad++'s compact Language menu
+"""Generates Inkpad/Sources/LanguageMenuTable.swift from upstream's compact Language menu
 (the second "&Language" popup in Notepad_plus.rc, with letter submenus). Run from the repo root:
     python3 -I scripts/gen-language-menu.py
 User Defined Language entries are left out until UDL support exists."""
 import re
 
-rc = open('vendor/notepad-plus-plus/PowerEditor/src/Notepad_plus.rc', encoding='utf-8', errors='replace').read()
-table = open('MacPad/Sources/LanguageTable.swift').read()
+rc = open('vendor/upstream/PowerEditor/src/Notepad_plus.rc', encoding='utf-8', errors='replace').read()
+table = open('Inkpad/Sources/LanguageTable.swift').read()
 by_type = dict((t, n) for n, t in re.findall(
     r'name: "([^"]+)", shortName: "[^"]*", longName: "[^"]*", langType: "(\w+)"', table))
 special = {'IDM_LANG_JS': 'L_JAVASCRIPT'}
@@ -53,7 +53,7 @@ def q(s):
     return '"' + s.replace('\\', '\\\\').replace('"', '\\"') + '"'
 
 
-out = ['// Generated from Notepad++ v8.9.8.1 Notepad_plus.rc (the compact "&Language" menu, letter',
+out = ['// Generated from upstream v8.9.8.1 Notepad_plus.rc (the compact "&Language" menu, letter',
        '// submenus) by scripts/gen-language-menu.py. Values are langs.model.xml names.',
        '// Do not edit by hand; regenerate instead. User Defined Language entries are left out.', '',
        'enum LanguageMenuEntry {', '    case item(title: String, language: String)', '    case separator',
@@ -67,4 +67,4 @@ for e in entries:
     else:
         out.append(f'    .submenu(title: {q(e[1])}, items: [' + ', '.join(f'({q(a)}, {q(b)})' for a, b in e[2]) + ']),')
 out.append(']')
-open('MacPad/Sources/LanguageMenuTable.swift', 'w').write('\n'.join(out) + '\n')
+open('Inkpad/Sources/LanguageMenuTable.swift', 'w').write('\n'.join(out) + '\n')
