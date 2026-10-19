@@ -187,5 +187,12 @@ LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchSe
 for app in "$ROOT"/build/*/MacPad++.app(N) "$ROOT"/build/*/Build/Products/*/MacPad++.app(N); do
   "$LSREGISTER" -u "$app" 2>/dev/null || true
 done
+# MAC-77: unregistering does not last — Launch Services finds apps on disk again (Spotlight,
+# Finder), and the Release copies declare every document type, so "MacPad++" came back to Open
+# With beside the installed Notepad++. They are only intermediates, rebuilt on every run: delete
+# them. (Debug copies declare no document types, MAC-74/76, and stay for the tests.)
+for app in "$ROOT"/build/*/MacPad++.app(N) "$ROOT"/build/*/Build/Products/Release/MacPad++.app(N); do
+  rm -rf "$app"
+done
 
 for built in $BUILT; do echo "== done: $built"; done
