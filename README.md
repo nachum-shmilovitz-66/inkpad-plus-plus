@@ -7,7 +7,7 @@ Credits: Inkpad++ is a port of [Notepad++](https://notepad-plus-plus.org/) by Do
 whose language, styler and theme files it reads unchanged. It is an independent project, not
 affiliated with or endorsed by Notepad++. See `NOTICE`. License: GPLv3.
 
-Current release: **1.1.6** (milestones 1–7 done; notarization pending). Each release's installer is
+Current release: **1.1.7** (milestones 1–7 done; notarization pending). Each release's installer is
 on the repository's GitHub Releases page (only the newest is kept), and Inkpad++ › Check for Updates…
 offers it from inside the app.
 See `CLAUDE.md` for the roadmap and known gaps.
