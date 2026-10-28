@@ -51,7 +51,7 @@ option, and the marked legacy-migration code that cleans up installs of the old 
   soft gutter, no red fold line), generated from upstream's stylers.model.xml by
   `python3 scripts/gen-inkpad-light.py`; regenerate rather than editing. The build copies `Themes/*.xml`
   next to upstream's themes; `ThemeManager.preferredName` is the theme until the user picks one. Defaults
-  since MAC-80: triangle folds, line spacing +2 px (Settings › Editing); MAC-81: full path in the title.
+  since MAC-80: triangle folds (MAC-82: BBEdit-sized images, plus a corner on each block's closing line), line spacing +2 px (Settings › Editing); MAC-81: full path in the title.
 - At build time a script phase copies `langs.model.xml`, `stylers.model.xml` and `themes/` from
   vendor/ into the app's `Resources/upstream/`.
 

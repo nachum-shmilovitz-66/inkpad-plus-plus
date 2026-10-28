@@ -268,11 +268,57 @@ enum EditorStyler {
             context.setLineWidth(s * 0.75)
             context.strokeEllipse(in: ball)
         }
-        // A bitmap context's memory is already top row first; only the premultiplication goes.
+        unpremultiply(&pixels)
+        return pixels
+    }
+
+    /// A bitmap context's memory is already top row first; only the premultiplication goes.
+    private static func unpremultiply(_ pixels: inout [UInt8]) {
         for i in stride(from: 0, to: pixels.count, by: 4) {
             let a = Int(pixels[i + 3])
             for c in 0..<3 { pixels[i + c] = a == 0 ? 0 : UInt8(min(255, Int(pixels[i + c]) * 255 / a)) }
         }
+    }
+
+    /// The Arrow fold marks (MAC-82): Scintilla's own arrows fill the margin, BBEdit's are small.
+    enum FoldMarkShape { case open, closed, end }
+
+    static let foldMarkPoints = 12
+
+    private static func defineFoldMarkImage(_ v: ScintillaView, _ num: Int32, _ shape: FoldMarkShape, colour: Int) {
+        let pixels = foldMarkImage(shape, points: foldMarkPoints, scale: 2, colour: colour)
+        v.send(SCI_RGBAIMAGESETWIDTH, foldMarkPoints * 2)
+        v.send(SCI_RGBAIMAGESETHEIGHT, foldMarkPoints * 2)
+        v.send(SCI_RGBAIMAGESETSCALE, 200)
+        pixels.withUnsafeBytes { v.send(SCI_MARKERDEFINERGBAIMAGE, Int(num), pointer: $0.baseAddress) }
+    }
+
+    /// RGBA pixels of a fold mark in a Scintilla colour (BGR): a flat triangle pointing down
+    /// (open) or right (folded), or BBEdit's small corner that marks a block's last line.
+    static func foldMarkImage(_ shape: FoldMarkShape, points: Int, scale: Int, colour: Int) -> [UInt8] {
+        let size = points * scale
+        var pixels = [UInt8](repeating: 0, count: size * size * 4)
+        pixels.withUnsafeMutableBytes { raw in
+            guard let context = CGContext(data: raw.baseAddress, width: size, height: size, bitsPerComponent: 8,
+                                          bytesPerRow: size * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
+            context.scaleBy(x: CGFloat(scale), y: CGFloat(scale))
+            context.setFillColor(CGColor(srgbRed: CGFloat(colour & 0xFF) / 255, green: CGFloat((colour >> 8) & 0xFF) / 255,
+                                         blue: CGFloat((colour >> 16) & 0xFF) / 255, alpha: 1))
+            // Quartz's y axis points up; the mark sits in the middle of the line, 8 x 4.5 points.
+            let m = CGFloat(points) / 2
+            switch shape {
+            case .open:
+                context.addLines(between: [CGPoint(x: m - 4, y: m + 2.25), CGPoint(x: m + 4, y: m + 2.25), CGPoint(x: m, y: m - 2.25)])
+            case .closed:
+                context.addLines(between: [CGPoint(x: m - 2.25, y: m + 4), CGPoint(x: m - 2.25, y: m - 4), CGPoint(x: m + 2.25, y: m)])
+            case .end:
+                context.addRect(CGRect(x: m - 3, y: m - 2.25, width: 2, height: 4.5))
+                context.addRect(CGRect(x: m - 3, y: m - 2.25, width: 6.25, height: 2))
+            }
+            context.fillPath()
+        }
+        unpremultiply(&pixels)
         return pixels
     }
 
@@ -314,9 +360,14 @@ enum EditorStyler {
                        (SC_MARKNUM_FOLDERTAIL, SC_MARK_EMPTY), (SC_MARKNUM_FOLDEREND, SC_MARK_EMPTY),
                        (SC_MARKNUM_FOLDEROPENMID, SC_MARK_EMPTY), (SC_MARKNUM_FOLDERMIDTAIL, SC_MARK_EMPTY)]
         case .arrow:
-            markers = [(SC_MARKNUM_FOLDEROPEN, SC_MARK_ARROWDOWN), (SC_MARKNUM_FOLDER, SC_MARK_ARROW), (SC_MARKNUM_FOLDERSUB, SC_MARK_EMPTY),
-                       (SC_MARKNUM_FOLDERTAIL, SC_MARK_EMPTY), (SC_MARKNUM_FOLDEREND, SC_MARK_EMPTY),
-                       (SC_MARKNUM_FOLDEROPENMID, SC_MARK_EMPTY), (SC_MARKNUM_FOLDERMIDTAIL, SC_MARK_EMPTY)]
+            // MAC-82: BBEdit's small triangles, and a corner on the line that closes each block.
+            let colour = theme.global("Fold")?.foreground ?? 0x8E8E8E
+            let images: [(Int32, FoldMarkShape)] = [
+                (SC_MARKNUM_FOLDEROPEN, .open), (SC_MARKNUM_FOLDEROPENMID, .open),
+                (SC_MARKNUM_FOLDER, .closed), (SC_MARKNUM_FOLDEREND, .closed),
+                (SC_MARKNUM_FOLDERTAIL, .end), (SC_MARKNUM_FOLDERMIDTAIL, .end)]
+            for (num, shape) in images { defineFoldMarkImage(v, num, shape, colour: colour) }
+            markers = [(SC_MARKNUM_FOLDERSUB, SC_MARK_EMPTY)]
         case .circle:
             markers = [(SC_MARKNUM_FOLDEROPEN, SC_MARK_CIRCLEMINUS), (SC_MARKNUM_FOLDER, SC_MARK_CIRCLEPLUS),
                        (SC_MARKNUM_FOLDERSUB, SC_MARK_VLINE), (SC_MARKNUM_FOLDERTAIL, SC_MARK_LCORNERCURVE),

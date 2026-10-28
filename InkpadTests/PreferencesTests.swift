@@ -100,9 +100,64 @@ final class PreferencesTests: XCTestCase {
     func testFoldStylesAndNone() {
         Preferences.update { $0.foldMarkStyle = .arrow }
         let v = editor("cpp")
-        XCTAssertEqual(v.send(SCI_MARKERSYMBOLDEFINED, Int(SC_MARKNUM_FOLDER)), Int(SC_MARK_ARROW))
+        for num in [SC_MARKNUM_FOLDER, SC_MARKNUM_FOLDEROPEN, SC_MARKNUM_FOLDEREND, SC_MARKNUM_FOLDEROPENMID,
+                    SC_MARKNUM_FOLDERTAIL, SC_MARKNUM_FOLDERMIDTAIL] {
+            XCTAssertEqual(v.send(SCI_MARKERSYMBOLDEFINED, Int(num)), Int(SC_MARK_RGBAIMAGE), "small drawn marks (MAC-82)")
+        }
+        XCTAssertEqual(v.send(SCI_MARKERSYMBOLDEFINED, Int(SC_MARKNUM_FOLDERSUB)), Int(SC_MARK_EMPTY))
+        Preferences.update { $0.foldMarkStyle = .box }
+        XCTAssertEqual(editor("cpp").send(SCI_MARKERSYMBOLDEFINED, Int(SC_MARKNUM_FOLDERTAIL)), Int(SC_MARK_LCORNER),
+                       "another style replaces the images")
         Preferences.update { $0.foldMarkStyle = .none }
         XCTAssertEqual(editor("cpp").send(SCI_GETMARGINWIDTHN, Margin.fold), 0)
+    }
+
+    // MAC-82: BBEdit-sized fold marks. Pixel rows run top to bottom.
+    private func filled(_ pixels: [UInt8], size: Int, rows: Range<Int>, columns: Range<Int>) -> Int {
+        var n = 0
+        for y in rows { for x in columns where pixels[(y * size + x) * 4 + 3] > 128 { n += 1 } }
+        return n
+    }
+
+    func testOpenFoldMarkIsASmallTrianglePointingDown() {
+        let size = EditorStyler.foldMarkPoints * 2
+        let pixels = EditorStyler.foldMarkImage(.open, points: EditorStyler.foldMarkPoints, scale: 2, colour: 0x8E8E8E)
+        XCTAssertEqual(pixels.count, size * size * 4)
+        let top = filled(pixels, size: size, rows: 0..<size / 2, columns: 0..<size)
+        let bottom = filled(pixels, size: size, rows: size / 2..<size, columns: 0..<size)
+        XCTAssertGreaterThan(top, bottom * 2, "wide at the top, a point at the bottom")
+        let total = top + bottom
+        XCTAssertLessThan(total, size * size / 6, "small: about 8 x 4.5 points in a 12-point box")
+        XCTAssertGreaterThan(total, 0)
+        XCTAssertEqual(filled(pixels, size: size, rows: 0..<4, columns: 0..<size), 0, "room above")
+    }
+
+    func testFoldedMarkIsATrianglePointingRight() {
+        let size = EditorStyler.foldMarkPoints * 2
+        let pixels = EditorStyler.foldMarkImage(.closed, points: EditorStyler.foldMarkPoints, scale: 2, colour: 0x8E8E8E)
+        let left = filled(pixels, size: size, rows: 0..<size, columns: 0..<size / 2)
+        let right = filled(pixels, size: size, rows: 0..<size, columns: size / 2..<size)
+        XCTAssertGreaterThan(left, right * 2)
+    }
+
+    func testEndMarkIsACornerAtTheBottomLeft() {
+        let size = EditorStyler.foldMarkPoints * 2
+        let pixels = EditorStyler.foldMarkImage(.end, points: EditorStyler.foldMarkPoints, scale: 2, colour: 0x8E8E8E)
+        let m = size / 2
+        // The foot: a bar along the bottom; the stem: up the left side only.
+        XCTAssertGreaterThan(filled(pixels, size: size, rows: m + 2..<m + 4, columns: m..<m + 5), 0, "foot to the right")
+        XCTAssertGreaterThan(filled(pixels, size: size, rows: m - 4..<m - 1, columns: m - 6..<m - 2), 0, "stem on the left")
+        XCTAssertEqual(filled(pixels, size: size, rows: m - 4..<m - 1, columns: m..<size), 0, "nothing above the foot")
+    }
+
+    func testFoldMarksUseTheThemeColour() {
+        let size = EditorStyler.foldMarkPoints * 2
+        // Scintilla colours are BGR: 0x0000FF is red.
+        let pixels = EditorStyler.foldMarkImage(.open, points: EditorStyler.foldMarkPoints, scale: 2, colour: 0x0000FF)
+        let centre = ((size / 2 - 2) * size + size / 2) * 4
+        XCTAssertEqual(pixels[centre + 3], 255)
+        XCTAssertGreaterThan(pixels[centre], 240)
+        XCTAssertLessThan(pixels[centre + 2], 15)
     }
 
     func testOneEdgeColumnInBackgroundMode() {
