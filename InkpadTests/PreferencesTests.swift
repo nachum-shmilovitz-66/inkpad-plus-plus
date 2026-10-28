@@ -27,7 +27,7 @@ final class PreferencesTests: XCTestCase {
         XCTAssertEqual(p.caretBlinkRate, 600)
         XCTAssertEqual(p.lineWrap, .aligned)
         XCTAssertTrue(p.scrollBeyondLastLine)
-        XCTAssertEqual(p.foldMarkStyle, .box)
+        XCTAssertEqual(p.foldMarkStyle, .arrow, "triangles, as on the Mac (MAC-80)")
         XCTAssertEqual(p.defaultTabs, Preferences.TabSetting(size: 4, useSpaces: false, backspaceUnindent: false))
         XCTAssertEqual(p.inSelectionThreshold, 1024)
         XCTAssertTrue(p.confirmReplaceInAllOpened)
@@ -39,7 +39,7 @@ final class PreferencesTests: XCTestCase {
         let p = try JSONDecoder().decode(Preferences.self, from: Data(#"{"caretWidth":4,"maxRecentFiles":20}"#.utf8))
         XCTAssertEqual(p.caretWidth, 4)
         XCTAssertEqual(p.maxRecentFiles, 20)
-        XCTAssertEqual(p.foldMarkStyle, .box)
+        XCTAssertEqual(p.foldMarkStyle, .arrow)
     }
 
     func testTabSettingsByLanguage() {

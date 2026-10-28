@@ -134,6 +134,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         preferencesObserver = NotificationCenter.default.addObserver(forName: Preferences.didChange, object: nil, queue: .main) { [weak self] _ in
             self?.applyTheme()
             self?.mainToolbar.setIconSet(Preferences.current.toolbarIconSet)
+            self?.refresh()  // the title follows Show full path (MAC-81)
         }
         for (view, pane) in panes.enumerated() {
             pane.tabBar.onSelect = { [weak self] index in self?.selectTab(at: index, inView: view) }
@@ -1238,7 +1239,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
         refreshDocumentMap()
 
         guard let active = tabs.active else { return }
-        window?.title = active.displayName
+        window?.title = WindowTitle.text(displayName: active.displayName, fileURL: active.fileURL,
+                                         fullPath: Preferences.current.showFullPathInTitle)
         window?.representedURL = active.fileURL
         window?.isDocumentEdited = active.isModified
         if window?.firstResponder !== active.editor.content() {
@@ -1311,5 +1313,15 @@ extension MainWindowController: ToolbarCommandValidating {
     /// the Mac behaviour and stays enabled.
     func validateToolbarCommand(_ action: Selector) -> Bool {
         action == #selector(saveDocument(_:)) ? activeTab?.isModified == true : true
+    }
+}
+
+/// MAC-81: the window title — the file name, or its full path with ~ for the home folder.
+enum WindowTitle {
+    static func text(displayName: String, fileURL: URL?, fullPath: Bool,
+                     home: String = FileManager.default.homeDirectoryForCurrentUser.path) -> String {
+        guard fullPath, let path = fileURL?.path else { return displayName }
+        if path == home { return "~" }
+        return path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path
     }
 }

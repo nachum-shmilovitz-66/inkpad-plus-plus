@@ -20,6 +20,8 @@ final class PreferencesController: NSWindowController {
     let dragDropBox = NSButton(checkboxWithTitle: "Enable selected text drag-and-drop", target: nil, action: nil)
     let multiEditBox = NSButton(checkboxWithTitle: "Enable Multi-Editing (⌘+Mouse click/selection)", target: nil, action: nil)
     let eolRoundedBox = NSButton(checkboxWithTitle: "Show line endings as rounded boxes (else plain text)", target: nil, action: nil)
+    /// MAC-80: extra pixels between lines.
+    let lineSpacingPopup = NSPopUpButton()
     // Toolbar (MAC-69)
     let toolbarIconsPopup = NSPopUpButton()
     // Margins / Border / Edge
@@ -50,6 +52,8 @@ final class PreferencesController: NSWindowController {
     let recentFilesField = NSTextField()
     let sqlBackslashBox = NSButton(checkboxWithTitle: "Treat backslash as escape character for SQL", target: nil, action: nil)
     let scaleFontsBox = NSButton(checkboxWithTitle: "Scale Windows font sizes for macOS (× 4/3)", target: nil, action: nil)
+    /// MAC-81.
+    let fullPathBox = NSButton(checkboxWithTitle: "Show the full file path in the title bar", target: nil, action: nil)
     let autoUpdateBox = NSButton(checkboxWithTitle: "Check for updates automatically (once a day)", target: nil, action: nil)
     // File Association (MAC-51)
     private(set) lazy var fileAssociationPane: FileAssociationPane = {
@@ -117,6 +121,7 @@ final class PreferencesController: NSWindowController {
         dragDropBox.state = p.dragAndDrop ? .on : .off
         multiEditBox.state = p.multiEditing ? .on : .off
         eolRoundedBox.state = p.eolRounded ? .on : .off
+        lineSpacingPopup.selectItem(at: Preferences.lineSpacingChoices.firstIndex(of: p.lineSpacing) ?? 2)
         toolbarIconsPopup.selectItem(at: Preferences.ToolbarIconSet.allCases.firstIndex(of: p.toolbarIconSet) ?? 0)
         foldStylePopup.selectItem(at: Preferences.FoldMarkStyle.allCases.firstIndex(of: p.foldMarkStyle) ?? 3)
         lineNumbersBox.state = p.showLineNumbers ? .on : .off
@@ -141,6 +146,7 @@ final class PreferencesController: NSWindowController {
         recentFilesField.integerValue = p.maxRecentFiles
         sqlBackslashBox.state = p.sqlBackslashEscapes ? .on : .off
         scaleFontsBox.state = p.scaleWindowsFontSizes ? .on : .off
+        fullPathBox.state = p.showFullPathInTitle ? .on : .off
         autoUpdateBox.state = p.checkForUpdatesAutomatically ? .on : .off
     }
 
@@ -180,6 +186,7 @@ final class PreferencesController: NSWindowController {
             p.dragAndDrop = dragDropBox.state == .on
             p.multiEditing = multiEditBox.state == .on
             p.eolRounded = eolRoundedBox.state == .on
+            p.lineSpacing = Preferences.lineSpacingChoices[max(lineSpacingPopup.indexOfSelectedItem, 0)]
             p.toolbarIconSet = Preferences.ToolbarIconSet.allCases[max(toolbarIconsPopup.indexOfSelectedItem, 0)]
             p.foldMarkStyle = Preferences.FoldMarkStyle.allCases[max(foldStylePopup.indexOfSelectedItem, 0)]
             p.showLineNumbers = lineNumbersBox.state == .on
@@ -199,6 +206,7 @@ final class PreferencesController: NSWindowController {
             p.maxRecentFiles = min(max(recentFilesField.integerValue, 0), 30)
             p.sqlBackslashEscapes = sqlBackslashBox.state == .on
             p.scaleWindowsFontSizes = scaleFontsBox.state == .on
+            p.showFullPathInTitle = fullPathBox.state == .on
             p.checkForUpdatesAutomatically = autoUpdateBox.state == .on
         }
         load()
@@ -247,6 +255,7 @@ final class PreferencesController: NSWindowController {
         popup(currentLinePopup, ["None", "Highlight Background", "Frame"])
         popup(caretWidthPopup, Self.caretWidths)
         popup(wrapPopup, ["Default", "Aligned", "Indent"])
+        popup(lineSpacingPopup, Preferences.lineSpacingChoices.map { $0 == 0 ? "None" : "+\($0) px" })
         popup(toolbarIconsPopup, Self.toolbarIconTitles)
         popup(foldStylePopup, ["Simple", "Arrow", "Circle tree", "Box tree", "None"])
         indentLanguagePopup.addItems(withTitles: [Self.defaultIndentTitle] + languages.dropFirst().map(\.title))
@@ -254,7 +263,7 @@ final class PreferencesController: NSWindowController {
         indentLanguagePopup.action = #selector(indentLanguageChosen(_:))
         for control in [virtualSpaceBox, scrollBeyondBox, dragDropBox, multiEditBox, eolRoundedBox, lineNumbersBox, dynamicWidthBox,
                         bookmarkMarginBox, edgeBackgroundBox, fillFindBox, selectWordBox, staysOpenBox, confirmReplaceBox,
-                        replaceStopsBox, sqlBackslashBox, scaleFontsBox, autoUpdateBox, blinkSlider] as [NSControl] {
+                        replaceStopsBox, sqlBackslashBox, scaleFontsBox, fullPathBox, autoUpdateBox, blinkSlider] as [NSControl] {
             control.target = self
             control.action = #selector(controlChanged(_:))
         }
@@ -300,7 +309,7 @@ final class PreferencesController: NSWindowController {
         page("Editing", [grid([[label("Current Line Indicator:"), currentLinePopup], [label("Frame width:"), frameWidthField],
                                [label("Caret width:"), caretWidthPopup],
                                [label("Caret blink rate:"), NSStackView(views: [label("Fast"), blinkSlider, label("Slow (no blink)")])],
-                               [label("Line Wrap:"), wrapPopup]]),
+                               [label("Line Wrap:"), wrapPopup], [label("Line spacing:"), lineSpacingPopup]]),
                          virtualSpaceBox, scrollBeyondBox, dragDropBox, multiEditBox, eolRoundedBox])
         page("Margins", [grid([[label("Fold Margin Style:"), foldStylePopup]]), lineNumbersBox, dynamicWidthBox, bookmarkMarginBox,
                          grid([[label("Vertical edge columns:"), edgeField]]), edgeBackgroundBox,
@@ -311,7 +320,7 @@ final class PreferencesController: NSWindowController {
                            fillFindBox, grid([[label("Max Characters to Auto-Fill Find Field from Selection:"), fillMaxField]]),
                            selectWordBox, staysOpenBox, confirmReplaceBox, replaceStopsBox])
         page("File Association", [fileAssociationPane])
-        page("Misc.", [grid([[label("Recent Files: max. number of entries:"), recentFilesField]]), sqlBackslashBox, scaleFontsBox, autoUpdateBox])
+        page("Misc.", [grid([[label("Recent Files: max. number of entries:"), recentFilesField]]), sqlBackslashBox, scaleFontsBox, fullPathBox, autoUpdateBox])
 
         tabView.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(tabView)

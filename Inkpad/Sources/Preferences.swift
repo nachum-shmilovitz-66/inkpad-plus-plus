@@ -38,10 +38,14 @@ struct Preferences: Codable, Equatable {
     var multiEditing = true
     /// EOL shown as rounded boxes (upstream's default) or plain text.
     var eolRounded = true
+    /// MAC-80: extra pixels between lines (split above and below), for a calmer, BBEdit-like page.
+    var lineSpacing = 2
+    static let lineSpacingChoices = [0, 1, 2, 3, 4, 6]
 
     // MARK: Margins / Border / Edge
     enum FoldMarkStyle: String, Codable, CaseIterable { case simple, arrow, circle, box, none }
-    var foldMarkStyle = FoldMarkStyle.box
+    /// MAC-80: triangles, as on the Mac (upstream's default is the box tree).
+    var foldMarkStyle = FoldMarkStyle.arrow
     var showLineNumbers = true
     var lineNumberDynamicWidth = true
     var showBookmarkMargin = true
@@ -74,6 +78,8 @@ struct Preferences: Codable, Equatable {
     var maxRecentFiles = 10
     /// MAC-12: upstream sizes are Windows points; scaled by 4/3 they look the size they do there.
     var scaleWindowsFontSizes = true
+    /// MAC-81: the window title shows the document's full path (~ for the home folder).
+    var showFullPathInTitle = true
 
     // MARK: Toolbar (MAC-69)
     /// upstream's Preferences › Toolbar icon choice: SF Symbols (the Mac default), or its Fluent UI
@@ -105,6 +111,7 @@ struct Preferences: Codable, Equatable {
         dragAndDrop = v(.dragAndDrop, d.dragAndDrop)
         multiEditing = v(.multiEditing, d.multiEditing)
         eolRounded = v(.eolRounded, d.eolRounded)
+        lineSpacing = v(.lineSpacing, d.lineSpacing)
         foldMarkStyle = v(.foldMarkStyle, d.foldMarkStyle)
         showLineNumbers = v(.showLineNumbers, d.showLineNumbers)
         lineNumberDynamicWidth = v(.lineNumberDynamicWidth, d.lineNumberDynamicWidth)
@@ -126,6 +133,7 @@ struct Preferences: Codable, Equatable {
         maxRecentFiles = v(.maxRecentFiles, d.maxRecentFiles)
         scaleWindowsFontSizes = v(.scaleWindowsFontSizes, d.scaleWindowsFontSizes)
         toolbarIconSet = v(.toolbarIconSet, d.toolbarIconSet)
+        showFullPathInTitle = v(.showFullPathInTitle, d.showFullPathInTitle)
         checkForUpdatesAutomatically = v(.checkForUpdatesAutomatically, d.checkForUpdatesAutomatically)
     }
 

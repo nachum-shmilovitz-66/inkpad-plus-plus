@@ -47,6 +47,11 @@ option, and the marked legacy-migration code that cleans up installs of the old 
   its title after the built app's name (`scripts/display-name.sh`), so it builds
   `dist/Inkpad++-<v>.pkg`. Debug builds are always "Inkpad++ Debug" (`Config/Debug.xcconfig`): test
   hosts once showed in the Dock under the release name and looked like the user's editor stuck.
+- `Themes/Inkpad Light.xml` (MAC-80) — Inkpad's own BBEdit-like default theme (Menlo 12, calm colours,
+  soft gutter, no red fold line), generated from upstream's stylers.model.xml by
+  `python3 scripts/gen-inkpad-light.py`; regenerate rather than editing. The build copies `Themes/*.xml`
+  next to upstream's themes; `ThemeManager.preferredName` is the theme until the user picks one. Defaults
+  since MAC-80: triangle folds, line spacing +2 px (Settings › Editing); MAC-81: full path in the title.
 - At build time a script phase copies `langs.model.xml`, `stylers.model.xml` and `themes/` from
   vendor/ into the app's `Resources/upstream/`.
 

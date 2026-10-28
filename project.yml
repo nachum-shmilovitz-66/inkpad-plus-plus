@@ -80,6 +80,7 @@ targets:
           mkdir -p "$DEST"
           cp "$NPP/src/langs.model.xml" "$NPP/src/stylers.model.xml" "$DEST/"
           rsync -a --delete "$NPP/installer/themes/" "$DEST/themes/"
+          cp "$PROJECT_DIR/Themes/"*.xml "$DEST/themes/"  # MAC-80: Inkpad's own themes (Inkpad Light)
           rsync -a --delete "$NPP/installer/functionList/" "$DEST/functionList/"
           # MAC-69: upstream's Fluent UI toolbar icons (light/dark, regular/filled), for the toolbar option.
           for look in light dark; do

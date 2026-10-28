@@ -140,7 +140,7 @@ final class StyleConfiguratorDialogTests: XCTestCase {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("InkpadStyleCfg-\(UUID().uuidString)", isDirectory: true)
         defaults = UserDefaults(suiteName: suite)
         defaults.removePersistentDomain(forName: suite)
-        themes = ThemeManager(defaults: defaults, supportDirectory: root)
+        themes = ThemeManager(defaults: defaults, supportDirectory: root, preferredDefault: ThemeManager.defaultName)
     }
 
     override func tearDown() {
