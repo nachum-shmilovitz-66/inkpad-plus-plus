@@ -40,6 +40,8 @@ struct Preferences: Codable, Equatable {
     var eolRounded = true
     /// MAC-80: extra pixels between lines (split above and below), for a calmer, BBEdit-like page.
     var lineSpacing = 2
+    /// MAC-83: keep the editor's scroll bars visible; a trackpad's overlay ones show only while scrolling.
+    var alwaysShowScrollBars = true
     static let lineSpacingChoices = [0, 1, 2, 3, 4, 6]
 
     // MARK: Margins / Border / Edge
@@ -112,6 +114,7 @@ struct Preferences: Codable, Equatable {
         multiEditing = v(.multiEditing, d.multiEditing)
         eolRounded = v(.eolRounded, d.eolRounded)
         lineSpacing = v(.lineSpacing, d.lineSpacing)
+        alwaysShowScrollBars = v(.alwaysShowScrollBars, d.alwaysShowScrollBars)
         foldMarkStyle = v(.foldMarkStyle, d.foldMarkStyle)
         showLineNumbers = v(.showLineNumbers, d.showLineNumbers)
         lineNumberDynamicWidth = v(.lineNumberDynamicWidth, d.lineNumberDynamicWidth)

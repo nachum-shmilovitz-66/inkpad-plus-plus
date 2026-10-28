@@ -31,6 +31,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
     let leftDock = NSSplitView()
     let rightDock = NSSplitView()
     private var themeObserver: NSObjectProtocol?
+    private var scrollerStyleObserver: NSObjectProtocol?
     private var preferencesObserver: NSObjectProtocol?
     let searchResults = SearchResultsPanel()
     /// upstream's incremental search bar, above the status bar (MAC-34).
@@ -135,6 +136,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             self?.applyTheme()
             self?.mainToolbar.setIconSet(Preferences.current.toolbarIconSet)
             self?.refresh()  // the title follows Show full path (MAC-81)
+        }
+        // MAC-83: AppKit gives every scroll view the system's style when it changes (a mouse
+        // plugged in, System Settings); once it has, put Always show scroll bars back.
+        scrollerStyleObserver = NotificationCenter.default.addObserver(forName: NSScroller.preferredScrollerStyleDidChangeNotification,
+                                                                       object: nil, queue: .main) { [weak self] _ in
+            DispatchQueue.main.async { self?.applyTheme() }
         }
         for (view, pane) in panes.enumerated() {
             pane.tabBar.onSelect = { [weak self] index in self?.selectTab(at: index, inView: view) }

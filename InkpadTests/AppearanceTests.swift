@@ -111,15 +111,60 @@ final class AppearanceTests: XCTestCase {
         }
     }
 
+    // MARK: Scroll bars (MAC-83)
+
+    func testScrollBarsAlwaysShowByDefault() throws {
+        XCTAssertTrue(Preferences().alwaysShowScrollBars)
+        let old = try JSONDecoder().decode(Preferences.self, from: Data(#"{"caretWidth":2}"#.utf8))
+        XCTAssertTrue(old.alwaysShowScrollBars, "settings saved before MAC-83 get it too")
+        var off = Preferences()
+        off.alwaysShowScrollBars = false
+        XCTAssertFalse(try JSONDecoder().decode(Preferences.self, from: JSONEncoder().encode(off)).alwaysShowScrollBars)
+    }
+
+    func testTheEditorKeepsLegacyScrollBarsUnlessTurnedOff() {
+        let tab = EditorTab(untitledNumber: 1)
+        addTeardownBlock { tab.detach() }
+        var p = Preferences()
+        EditorStyler.applyViewPreferences(p, theme: ThemeManager.shared.current, to: tab.editor)
+        XCTAssertEqual(tab.editor.scrollView.scrollerStyle, .legacy, "visible even with a trackpad")
+        p.alwaysShowScrollBars = false
+        EditorStyler.applyViewPreferences(p, theme: ThemeManager.shared.current, to: tab.editor)
+        XCTAssertEqual(tab.editor.scrollView.scrollerStyle, NSScroller.preferredScrollerStyle, "the system's choice")
+    }
+
+    func testOpenWindowsKeepTheScrollBarsWhenTheSystemStyleChanges() throws {
+        let wc = MainWindowController()
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("mac83-\(UUID().uuidString).txt")
+        try "text\n".write(to: file, atomically: true, encoding: .utf8)
+        addTeardownBlock {
+            wc.openTabs.forEach { $0.detach() }
+            try? FileManager.default.removeItem(at: file)
+        }
+        wc.open(file)
+        let editor = try XCTUnwrap(wc.activeTab).editor
+        XCTAssertEqual(editor.scrollView.scrollerStyle, .legacy)
+        // What AppKit does to every scroll view when the system style changes.
+        editor.scrollView.scrollerStyle = .overlay
+        NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
+        let back = expectation(description: "style restored")
+        DispatchQueue.main.async { DispatchQueue.main.async { back.fulfill() } }
+        wait(for: [back], timeout: 2)
+        XCTAssertEqual(editor.scrollView.scrollerStyle, .legacy)
+    }
+
     func testTheSettingsWindowsNewControls() {
         let c = PreferencesController()
         XCTAssertEqual(c.lineSpacingPopup.itemTitles, ["None", "+1 px", "+2 px", "+3 px", "+4 px", "+6 px"])
         XCTAssertEqual(c.lineSpacingPopup.indexOfSelectedItem, 2)
         c.lineSpacingPopup.selectItem(at: 4)
         c.fullPathBox.state = .off
+        XCTAssertEqual(c.scrollBarsBox.state, .on)
+        c.scrollBarsBox.state = .off
         c.controlChanged(nil)
         XCTAssertEqual(Preferences.current.lineSpacing, 4)
         XCTAssertFalse(Preferences.current.showFullPathInTitle)
+        XCTAssertFalse(Preferences.current.alwaysShowScrollBars)
     }
 
     // MARK: Full path (MAC-81)

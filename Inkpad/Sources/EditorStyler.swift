@@ -329,6 +329,8 @@ enum EditorStyler {
         let spacing = max(0, min(p.lineSpacing, 12))
         v.send(SCI_SETEXTRAASCENT, (spacing + 1) / 2)
         v.send(SCI_SETEXTRADESCENT, spacing / 2)
+        // MAC-83: with a trackpad macOS hides scroll bars until you scroll; legacy ones always show.
+        v.scrollView.scrollerStyle = p.alwaysShowScrollBars ? .legacy : NSScroller.preferredScrollerStyle
         // Current line: none, highlighted background (the theme's colour), or a frame.
         v.send(SCI_SETCARETLINEVISIBLE, p.currentLineIndicator == .none ? 0 : 1)
         v.send(SCI_SETCARETLINEFRAME, p.currentLineIndicator == .frame ? max(p.currentLineFrameWidth, 1) : 0)

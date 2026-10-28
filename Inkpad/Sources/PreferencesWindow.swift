@@ -19,6 +19,7 @@ final class PreferencesController: NSWindowController {
     let scrollBeyondBox = NSButton(checkboxWithTitle: "Enable scrolling beyond last line", target: nil, action: nil)
     let dragDropBox = NSButton(checkboxWithTitle: "Enable selected text drag-and-drop", target: nil, action: nil)
     let multiEditBox = NSButton(checkboxWithTitle: "Enable Multi-Editing (⌘+Mouse click/selection)", target: nil, action: nil)
+    let scrollBarsBox = NSButton(checkboxWithTitle: "Always show scroll bars", target: nil, action: nil)
     let eolRoundedBox = NSButton(checkboxWithTitle: "Show line endings as rounded boxes (else plain text)", target: nil, action: nil)
     /// MAC-80: extra pixels between lines.
     let lineSpacingPopup = NSPopUpButton()
@@ -121,6 +122,7 @@ final class PreferencesController: NSWindowController {
         dragDropBox.state = p.dragAndDrop ? .on : .off
         multiEditBox.state = p.multiEditing ? .on : .off
         eolRoundedBox.state = p.eolRounded ? .on : .off
+        scrollBarsBox.state = p.alwaysShowScrollBars ? .on : .off
         lineSpacingPopup.selectItem(at: Preferences.lineSpacingChoices.firstIndex(of: p.lineSpacing) ?? 2)
         toolbarIconsPopup.selectItem(at: Preferences.ToolbarIconSet.allCases.firstIndex(of: p.toolbarIconSet) ?? 0)
         foldStylePopup.selectItem(at: Preferences.FoldMarkStyle.allCases.firstIndex(of: p.foldMarkStyle) ?? 3)
@@ -186,6 +188,7 @@ final class PreferencesController: NSWindowController {
             p.dragAndDrop = dragDropBox.state == .on
             p.multiEditing = multiEditBox.state == .on
             p.eolRounded = eolRoundedBox.state == .on
+            p.alwaysShowScrollBars = scrollBarsBox.state == .on
             p.lineSpacing = Preferences.lineSpacingChoices[max(lineSpacingPopup.indexOfSelectedItem, 0)]
             p.toolbarIconSet = Preferences.ToolbarIconSet.allCases[max(toolbarIconsPopup.indexOfSelectedItem, 0)]
             p.foldMarkStyle = Preferences.FoldMarkStyle.allCases[max(foldStylePopup.indexOfSelectedItem, 0)]
@@ -261,7 +264,7 @@ final class PreferencesController: NSWindowController {
         indentLanguagePopup.addItems(withTitles: [Self.defaultIndentTitle] + languages.dropFirst().map(\.title))
         indentLanguagePopup.target = self
         indentLanguagePopup.action = #selector(indentLanguageChosen(_:))
-        for control in [virtualSpaceBox, scrollBeyondBox, dragDropBox, multiEditBox, eolRoundedBox, lineNumbersBox, dynamicWidthBox,
+        for control in [virtualSpaceBox, scrollBeyondBox, dragDropBox, multiEditBox, eolRoundedBox, scrollBarsBox, lineNumbersBox, dynamicWidthBox,
                         bookmarkMarginBox, edgeBackgroundBox, fillFindBox, selectWordBox, staysOpenBox, confirmReplaceBox,
                         replaceStopsBox, sqlBackslashBox, scaleFontsBox, fullPathBox, autoUpdateBox, blinkSlider] as [NSControl] {
             control.target = self
@@ -310,7 +313,7 @@ final class PreferencesController: NSWindowController {
                                [label("Caret width:"), caretWidthPopup],
                                [label("Caret blink rate:"), NSStackView(views: [label("Fast"), blinkSlider, label("Slow (no blink)")])],
                                [label("Line Wrap:"), wrapPopup], [label("Line spacing:"), lineSpacingPopup]]),
-                         virtualSpaceBox, scrollBeyondBox, dragDropBox, multiEditBox, eolRoundedBox])
+                         virtualSpaceBox, scrollBeyondBox, dragDropBox, multiEditBox, eolRoundedBox, scrollBarsBox])
         page("Margins", [grid([[label("Fold Margin Style:"), foldStylePopup]]), lineNumbersBox, dynamicWidthBox, bookmarkMarginBox,
                          grid([[label("Vertical edge columns:"), edgeField]]), edgeBackgroundBox,
                          grid([[label("Padding left:"), paddingLeftField], [label("Padding right:"), paddingRightField]])])
