@@ -366,7 +366,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSMenuIt
             if let self, tab === self.activeTab { self.incrementalBar.resetCount() }
         }
         tab.onFocus = { [weak self, weak tab] in if let self, let tab { self.editorDidGainFocus(tab) } }
-        tab.onScroll = { [weak self, weak tab] in if let self, let tab { self.syncScroll(from: tab) } }
+        tab.onScroll = { [weak self, weak tab] in
+            guard let self, let tab else { return }
+            self.syncScroll(from: tab)
+            if tab === self.activeTab { self.refreshDocumentMap() }  // MAC-79: no full refresh on scroll
+        }
         panes[view].host(tab.editor)
         panes[view].tabs.append(tab)
         activeView = view

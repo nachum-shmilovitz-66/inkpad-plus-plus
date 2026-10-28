@@ -670,7 +670,10 @@ final class EditorTab: NSObject, ScintillaNotificationProtocol {
                 EditorStyler.updateLineNumberWidth(editor)  // Dynamic width follows the last line on screen
             }
             if Int(n.updated) & Int(SC_UPDATE_V_SCROLL | SC_UPDATE_H_SCROLL) != 0 { onScroll?() }
-            changed()
+            // MAC-79: a scroll changes nothing the window shows around the editor (title, tabs,
+            // status bar), and refreshing all of that on every scroll step relaid the window out in
+            // the middle of trackpad gestures. Only text and caret/selection changes refresh it.
+            if Int(n.updated) & Int(SC_UPDATE_CONTENT | SC_UPDATE_SELECTION) != 0 { changed() }
         case SCN_FOCUSIN:
             onFocus?()
         case SCN_MODIFIED:
